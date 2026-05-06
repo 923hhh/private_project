@@ -21,6 +21,26 @@
 
 ## 如何运行
 
+当前最推荐的启动方式是直接使用：
+
+```powershell
+.\scripts\start-dev.ps1
+```
+
+该脚本会自动：
+
+- 启动后端与前端
+- 执行数据库初始化
+- 自动更新 `frontend/.env.local` 中的 `NEXT_PUBLIC_API_BASE_URL`
+
+按当前项目默认配置，一键启动后的访问地址是：
+
+- 前端：`http://127.0.0.1:3000`
+- 后端：`http://127.0.0.1:18000`
+- 后端文档：`http://127.0.0.1:18000/docs`
+
+如需手工启动，可按下面步骤执行。
+
 ### 1. 安装后端依赖
 
 ```bash
@@ -56,10 +76,10 @@ cd frontend
 cp .env.example .env.local
 ```
 
-默认前端后端联调地址为：
+手工联调时，请将前端后端联调地址设为：
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:18000
 ```
 
 ### 3. 初始化数据库
@@ -73,13 +93,13 @@ python scripts/init_db.py --init-only
 
 ```bash
 cd backend
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 18000
 ```
 
 启动后可访问：
 
-- `http://127.0.0.1:8000/health`
-- `http://127.0.0.1:8000/docs`
+- `http://127.0.0.1:18000/health`
+- `http://127.0.0.1:18000/docs`
 
 ### 5. 启动前端
 
@@ -101,5 +121,6 @@ npm run dev
 2. 启动前端并进入工作台
 3. 在知识检索页面输入问题并查看命中结果
 4. 根据检索结果生成任务或处理步骤
-5. 展示案例记录、审核或结果沉淀流程
-6. 如需补充展示，可在 `/docs` 中查看接口文档
+5. 如需检修域联调，可先执行演示账号初始化脚本并使用默认账号登录
+6. 展示案例记录、审核或结果沉淀流程
+7. 如需补充展示，可在 `/docs` 中查看接口文档
