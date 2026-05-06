@@ -1,6 +1,6 @@
 {
   "generated_at": "2026-04-15T13:47:41.033798+00:00",
-  "config_path": "E:\\南京航空航天大学\\aaa大创\\智能体案例\\dachuang_project\\backend\\evaluation\\multi_dataset_eval_config.json",
+  "config_path": "backend/evaluation/multi_dataset_eval_config.json",
   "results": {
     "techqa_retrieval": {
       "dataset": "nvidia/TechQA-RAG-Eval",

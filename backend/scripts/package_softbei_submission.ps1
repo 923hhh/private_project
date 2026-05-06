@@ -8,7 +8,7 @@ if (-not (Test-Path $dist)) {
     New-Item -ItemType Directory -Path $dist | Out-Null
 }
 $stamp = Get-Date -Format "yyyyMMdd-HHmm"
-$out = Join-Path $dist "dachuang_project-SB8-src-$stamp.zip"
+$out = Join-Path $dist "project-src-$stamp.zip"
 git archive --format=zip -o $out HEAD
 Write-Host "已写入: $out"
 Write-Host "请将 PPT、演示视频、截图/录屏等二进制产物单独归档到本地或私有归档位置，勿提交进公开 Git 仓库。"
