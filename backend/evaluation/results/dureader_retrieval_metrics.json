@@ -1,0 +1,13 @@
+{
+  "dataset": "zyznull/dureader-retrieval-ranking",
+  "task_type": "retrieval_dureader_ranking",
+  "evaluated_queries": 180,
+  "empty_result_queries": 0,
+  "Recall@5": 0.5556,
+  "MRR": 0.3634,
+  "CitationHitRate": 0.5556,
+  "AvgLatencyMs": 2.89,
+  "P95LatencyMs": 4.17,
+  "skipped_queries": 20,
+  "avg_cleaned_docs_per_query": 54.42
+}

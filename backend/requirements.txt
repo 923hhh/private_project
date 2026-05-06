@@ -1,0 +1,36 @@
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+sqlalchemy>=2.0.25
+alembic>=1.13.0
+aiosqlite>=0.19.0
+asyncpg>=0.29.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-multipart>=0.0.6
+pandas>=2.0.0
+langchain>=0.1.0
+langchain-core>=0.1.0
+langchain-community>=0.0.0
+anthropic>=0.18.0
+langchain-openai>=0.1.0
+langchain-anthropic>=0.1.0
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+httpx>=0.26.0
+pypdf>=4.2.0
+pymupdf>=1.24.0
+PyJWT>=2.8.0
+bcrypt>=4.1.0
+faiss-cpu>=1.7.0
+pgvector>=0.3.0
+rank-bm25>=0.2.2
+FlagEmbedding>=1.2.0
+cachetools>=5.3.0
+
+# 仅用于 scripts/download_knowledge_datasets.py 拉取 Hugging Face 公开知识语料
+datasets>=2.16.0
+pyarrow>=14.0.0
+
+# 可选：用于 backend/scripts/generate_offline_eval_dataset.py 和 run_offline_rag_eval.py
+# 开启合成测试集与 RAGAS 指标时安装
+# ragas>=0.2.0

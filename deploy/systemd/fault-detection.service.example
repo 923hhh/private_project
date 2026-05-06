@@ -1,0 +1,15 @@
+[Unit]
+Description=Industrial Fault Detection FastAPI Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/dachuang_project/backend
+EnvironmentFile=/opt/dachuang_project/.env
+ExecStart=/opt/dachuang_project/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

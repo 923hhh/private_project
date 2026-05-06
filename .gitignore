@@ -1,0 +1,83 @@
+# ========================
+# 1. Python & 虚拟环境
+# ========================
+__pycache__/
+*.py[cod]
+*.pyc.*
+*$py.class
+.Python
+env/
+venv/
+.env
+.env.*
+!.env.example
+!frontend/.env.example
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ========================
+# 2. 数据库文件 (极其重要)
+# ========================
+# 忽略所有本地 SQLite 数据库，避免污染代码库
+*.db
+*.sqlite
+*.sqlite3
+# 如果后续用 alembic 做迁移，可以忽略本地生成的某些临时文件
+alembic.ini.bak
+
+# ========================
+# 3. 数据集与日志 (极其重要)
+# ========================
+# 绝对不能把 HAI Security Dataset 提交到 Git，太大了！
+*.csv
+*.tsv
+*.dat
+data/
+backend/data/
+dataset/
+logs/
+*.log
+
+# ========================
+# 4. IDE & 操作系统缓存
+# ========================
+.vscode/
+.idea/
+.tools/
+.claude/
+.DS_Store
+Thumbs.db
+
+# ========================
+# 4.1 Node / Next.js 产物
+# ========================
+node_modules/
+.next/
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+*.tsbuildinfo
+frontend/tsconfig.tsbuildinfo
+
+# ========================
+# 5. 测试与覆盖率
+# ========================
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 软件杯评测脚本本地产出（可重新生成）
+evaluation/softbei_eval_results.json
+backend/evaluation/softbei_eval_results.json
+*.db-journal
+
+# 软件杯源码打包脚本产出（见 scripts/package_softbei_submission.*）
+dist/
+
+# ========================
+# 6. 本地归档 / 发布材料
+# ========================
+deploy/backups/
+submission/
+docs/release/

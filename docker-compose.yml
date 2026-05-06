@@ -1,0 +1,33 @@
+# Docker Compose 配置 - PostgreSQL 生产数据库
+# 使用方式: docker-compose up -d
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: fault_detection_postgres
+    restart: unless-stopped
+    environment:
+      # 数据库初始化配置（通过环境变量覆盖，避免在仓库中固化凭据）
+      POSTGRES_USER: ${POSTGRES_USER:-fault_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-fault_detection}
+      # 性能优化参数
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      # 暴露给宿主机访问
+      - "5432:5432"
+    volumes:
+      # 持久化存储
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # 健康检查: 验证数据库是否真正可用
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fault_user} -d ${POSTGRES_DB:-fault_detection}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres_data:
+    driver: local

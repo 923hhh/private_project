@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-04-15T13:47:41.033798+00:00",
+  "config_path": "E:\\南京航空航天大学\\aaa大创\\智能体案例\\dachuang_project\\backend\\evaluation\\multi_dataset_eval_config.json",
+  "results": {
+    "techqa_retrieval": {
+      "dataset": "nvidia/TechQA-RAG-Eval",
+      "task_type": "retrieval_techqa_contexts",
+      "evaluated_queries": 148,
+      "empty_result_queries": 0,
+      "Recall@5": 0.5878,
+      "MRR": 0.3974,
+      "CitationHitRate": 0.5878,
+      "AvgLatencyMs": 64.31,
+      "P95LatencyMs": 74.55
+    },
+    "dureader_retrieval": {
+      "dataset": "zyznull/dureader-retrieval-ranking",
+      "task_type": "retrieval_dureader_ranking",
+      "evaluated_queries": 180,
+      "empty_result_queries": 0,
+      "Recall@5": 0.5556,
+      "MRR": 0.3634,
+      "CitationHitRate": 0.5556,
+      "AvgLatencyMs": 2.89,
+      "P95LatencyMs": 4.17,
+      "skipped_queries": 20,
+      "avg_cleaned_docs_per_query": 54.42
+    },
+    "squad_v2_no_answer": {
+      "dataset": "rajpurkar/squad_v2",
+      "task_type": "qa_no_answer",
+      "evaluated_rows": 200,
+      "no_answer_total": 100,
+      "NoAnswerHallucinationRate": 0.0
+    },
+    "cmrc2018_keypoint_coverage": {
+      "dataset": "hfl/cmrc2018",
+      "task_type": "qa_keypoint_coverage",
+      "evaluated_rows": 200,
+      "KeyPointCoverage": 0.2931
+    }
+  },
+  "failures": {}
+}

@@ -1,0 +1,1 @@
+"""Assistant application layer."""

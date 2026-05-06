@@ -1,0 +1,6 @@
+{
+  "dataset": "hfl/cmrc2018",
+  "task_type": "qa_keypoint_coverage",
+  "evaluated_rows": 200,
+  "KeyPointCoverage": 0.2931
+}

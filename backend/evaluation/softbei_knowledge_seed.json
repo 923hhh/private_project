@@ -1,0 +1,156 @@
+[
+  {
+    "title": "点火系统与启动困难检修标准",
+    "source_name": "engine_ignition_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "启动困难",
+    "section_reference": "第2章",
+    "page_reference": "P12",
+    "content": "发动机启动困难时，应优先检查火花塞、电极积碳、点火线圈连接状态和电瓶电压。若出现间歇失火，应检查点火线束和插头是否松动，并记录点火系统检测结论。"
+  },
+  {
+    "title": "供油与怠速异常排查手册",
+    "source_name": "fuel_idle_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "怠速不稳",
+    "section_reference": "第3章",
+    "page_reference": "P18",
+    "content": "冷启动困难、怠速不稳或加速无力时，应检查喷油嘴、化油器供油、怠速调节和空气滤芯。若出现回火，需同步检查进气系统、混合气浓度和节气门积碳。"
+  },
+  {
+    "title": "异常异响与正时链条检查规范",
+    "source_name": "timing_chain_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "异常异响",
+    "section_reference": "第4章",
+    "page_reference": "P26",
+    "content": "发动机出现明显金属敲击声或正时异响时，应优先排查正时链条、张紧器、气门间隙和凸轮轴磨损。拆检过程中要同步记录异响位置、持续时间和高温状态。"
+  },
+  {
+    "title": "润滑不足与温度偏高处理步骤",
+    "source_name": "lubrication_temp_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "温度偏高",
+    "section_reference": "第5章",
+    "page_reference": "P33",
+    "content": "若发动机运行温度偏高，应检查机油液位、润滑油路、散热片积尘、机油品质和缸体通风状态。若伴随功率下降，应进一步检查活塞摩擦和冷却风道堵塞。"
+  },
+  {
+    "title": "尾气异常与进气系统检查标准",
+    "source_name": "exhaust_intake_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "尾气异常",
+    "section_reference": "第6章",
+    "page_reference": "P40",
+    "content": "排气冒黑烟时，应重点检查空气滤芯堵塞、混合比过浓、喷油量异常和节气门积碳。若伴随加速迟滞，应记录空气滤芯状态和尾气颜色变化。"
+  },
+  {
+    "title": "密封渗漏与机油处理标准",
+    "source_name": "seal_oil_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "机油渗漏",
+    "section_reference": "第7章",
+    "page_reference": "P48",
+    "content": "发现机油渗漏时，应依次检查缸盖垫片、曲轴油封、放油螺栓和连接面密封状态。处理后需清洁表面并试车确认是否再次渗漏。"
+  },
+  {
+    "title": "照明与仪表背光电路检修规范",
+    "source_name": "lighting_dashboard_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "照明故障",
+    "section_reference": "第8章",
+    "page_reference": "P52",
+    "content": "当出现大灯不亮、远近光同时失效或仪表背光忽亮忽灭时，应依次检查保险丝、照明继电器、组合开关触点和搭铁线束。若无故障报码，需重点排查插接件氧化与接触电阻。"
+  },
+  {
+    "title": "USB供电接口与充电系统排查手册",
+    "source_name": "usb_power_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "电器故障",
+    "section_reference": "第9章",
+    "page_reference": "P58",
+    "content": "当USB充电口接触不良、时断时续或手机支架无线充电失效时，应检查USB母座松动、供电线束压降、DC-DC模块输出稳定性和接口焊点虚接情况，并记录负载电流。"
+  },
+  {
+    "title": "蓝牙通信与麦克风回声处理指南",
+    "source_name": "bluetooth_audio_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "通信故障",
+    "section_reference": "第10章",
+    "page_reference": "P64",
+    "content": "出现蓝牙连接失败、导航语音播报断续或车载麦克风回声严重时，应先重置蓝牙配对缓存，再检查主机固件版本、天线屏蔽、音频增益参数和外接耳机兼容性。"
+  },
+  {
+    "title": "胎压监测离线与传感器同步流程",
+    "source_name": "tpms_sync_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "传感器故障",
+    "section_reference": "第11章",
+    "page_reference": "P69",
+    "content": "胎压监测模块离线时，应确认TPMS传感器电量、接收模块供电、CAN总线状态和车辆识别码绑定信息。完成重新配对后需路试验证实时数据是否恢复。"
+  },
+  {
+    "title": "防盗报警误触发与复位操作规范",
+    "source_name": "alarm_reset_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "电器故障",
+    "section_reference": "第12章",
+    "page_reference": "P73",
+    "content": "防盗报警误触发且无法复位时，应排查震动传感器灵敏度、门磁状态、遥控器电池和报警主机故障码。确认误报源后执行主机复位并重新学习遥控器。"
+  },
+  {
+    "title": "组合开关与功能按键失灵检修标准",
+    "source_name": "handle_switch_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "电器故障",
+    "section_reference": "第13章",
+    "page_reference": "P78",
+    "content": "车把组合开关失灵时，应检查按键触点磨损、弹片回位、线束折断和防水胶圈老化。若多功能按键同时失效，优先检测供电主线与控制单元输入电压。"
+  },
+  {
+    "title": "仪表显示异常与油量信号诊断流程",
+    "source_name": "cluster_fuel_signal_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "传感器故障",
+    "section_reference": "第14章",
+    "page_reference": "P84",
+    "content": "当油表读数异常波动或仪表显示异常时，应检测油位传感器阻值变化、线束屏蔽、仪表板采样电路与接插件松动。完成检修后需执行仪表校准与满空箱比对。"
+  },
+  {
+    "title": "车载附件供电与显示设备检修要点",
+    "source_name": "accessory_power_display_manual.pdf",
+    "source_type": "manual",
+    "equipment_type": "摩托车发动机",
+    "equipment_model": "LX200",
+    "fault_type": "附件故障",
+    "section_reference": "第15章",
+    "page_reference": "P90",
+    "content": "行车记录仪黑屏、前置摄像头夜视失效等附件故障，应优先检查附件供电回路、稳压模块输出、电源地回路和视频接口接触状态。必要时更换附件电源模块并复测。"
+  }
+]

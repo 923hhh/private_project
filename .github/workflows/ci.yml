@@ -1,0 +1,41 @@
+# Push / PR 时跑全量 pytest（含慢测，约数分钟）。
+# 依赖真实 LLM 的抽检与录屏 E2E 不在此工作流内，请本地配置 .env 后按需手工执行。
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        working-directory: backend
+        run: pytest -q
+
+      - name: Run Softbei evaluation
+        working-directory: backend
+        run: python scripts/run_softbei_eval.py
+
+      - name: Check Softbei quality gate
+        working-directory: backend
+        run: python scripts/check_softbei_gate.py
