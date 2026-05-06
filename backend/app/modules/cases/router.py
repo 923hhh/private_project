@@ -1,4 +1,4 @@
-"""Maintenance case upload, review and correction APIs for TODO-SB-5."""
+"""Maintenance case upload, review and correction APIs."""
 import logging
 
 from fastapi import APIRouter, Depends, Query, Response, status

@@ -31,11 +31,3 @@ jobs:
       - name: Run tests
         working-directory: backend
         run: pytest -q
-
-      - name: Run Softbei evaluation
-        working-directory: backend
-        run: python scripts/run_softbei_eval.py
-
-      - name: Check Softbei quality gate
-        working-directory: backend
-        run: python scripts/check_softbei_gate.py

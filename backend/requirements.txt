@@ -31,6 +31,6 @@ cachetools>=5.3.0
 datasets>=2.16.0
 pyarrow>=14.0.0
 
-# 可选：用于 backend/scripts/generate_offline_eval_dataset.py 和 run_offline_rag_eval.py
+# 可选：用于离线评估与实验脚本
 # 开启合成测试集与 RAGAS 指标时安装
 # ragas>=0.2.0

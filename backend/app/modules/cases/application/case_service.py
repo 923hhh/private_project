@@ -1,4 +1,4 @@
-"""Case upload, review and knowledge feedback service for TODO-SB-5."""
+"""Case upload, review and knowledge feedback service."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -72,7 +72,7 @@ class MaintenanceCaseService:
                 target_kind="maintenance_task",
                 target_id=task.id,
                 relation_type="derived_from",
-                notes="TODO-SB-5 案例由标准化检修任务沉淀生成",
+                notes="案例由标准化检修任务沉淀生成",
             )
 
         for ref in knowledge_refs:
@@ -85,7 +85,7 @@ class MaintenanceCaseService:
                 target_kind="knowledge_chunk",
                 target_id=chunk_id,
                 relation_type="references",
-                notes="TODO-SB-5 案例保留原始知识引用",
+                notes="案例保留原始知识引用",
             )
 
         await self.session.commit()
@@ -289,7 +289,7 @@ class MaintenanceCaseService:
                 target_kind="knowledge_document",
                 target_id=document.id,
                 relation_type="approved_into",
-                notes="TODO-SB-5 审核通过后自动沉淀为知识文档",
+                notes="审核通过后自动沉淀为知识文档",
             )
         else:
             case.status = "rejected"

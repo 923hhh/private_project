@@ -1,4 +1,4 @@
-"""Maintenance task models for TODO-SB-4."""
+"""Maintenance task models."""
 from datetime import datetime
 from typing import Any
 

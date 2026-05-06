@@ -1,7 +1,0 @@
-{
-  "dataset": "rajpurkar/squad_v2",
-  "task_type": "qa_no_answer",
-  "evaluated_rows": 200,
-  "no_answer_total": 100,
-  "NoAnswerHallucinationRate": 0.0
-}

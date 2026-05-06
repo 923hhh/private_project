@@ -78,7 +78,7 @@ export function Footer() {
           </div>
           <FooterColumn title="功能导览" links={["多模态检索", "作业指引", "知识更新", "工单闭环"]} />
           <FooterColumn title="页面入口" links={["产品演示", "适用场景", "能力验证", "系统演示"]} />
-          <FooterColumn title="赛题要点" links={["B/S 架构", "多模态输入", "可交互 Web", "龙架构部署"]} />
+          <FooterColumn title="系统特性" links={["B/S 架构", "多模态输入", "可交互 Web", "云端部署"]} />
           <FooterColumn title="系统能力" links={["知识召回", "步骤预案", "结果回填", "审核发布"]} />
         </div>
 

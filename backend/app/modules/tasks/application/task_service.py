@@ -1,4 +1,4 @@
-"""Maintenance task workflow service for TODO-SB-4."""
+"""Maintenance task workflow service."""
 from __future__ import annotations
 
 import asyncio
@@ -71,7 +71,7 @@ DEFAULT_TEMPLATE_CATALOG: dict[str, dict[str, dict[str, Any]]] = {
         },
         "standard": {
             "name": "摩托车发动机标准检修流程",
-            "description": "适用于答辩演示和较完整的标准化检修闭环。",
+            "description": "适用于较完整的标准化检修闭环。",
             "steps": [
                 {
                     "title": "检修前安全隔离",
@@ -326,7 +326,7 @@ class MaintenanceTaskService:
                     target_kind="knowledge_chunk",
                     target_id=chunk_id,
                     relation_type="cites",
-                    notes="TODO-SB-4 标准化作业任务引用知识条目",
+                    notes="标准化作业任务引用知识条目",
                 )
             )
 

@@ -827,7 +827,7 @@ work_order_ready: boolean
         ]
         if knowledge_refs:
             suggestions.append(
-                f"建议优先保留 {knowledge_refs[0]['title']} 的引用截图与页码，便于后续答辩展示。"
+                f"建议优先保留 {knowledge_refs[0]['title']} 的引用截图与页码，便于后续复盘与核对。"
             )
         if related_cases:
             suggestions.append(f"可先对照案例《{related_cases[0]['title']}》检查是否存在相同处理路径。")

@@ -67,12 +67,12 @@ frontend/tsconfig.tsbuildinfo
 .coverage
 htmlcov/
 
-# 软件杯评测脚本本地产出（可重新生成）
-evaluation/softbei_eval_results.json
-backend/evaluation/softbei_eval_results.json
+# 评测脚本本地产出（可重新生成）
+evaluation/eval_results.json
+backend/evaluation/eval_results.json
 *.db-journal
 
-# 软件杯源码打包脚本产出（见 scripts/package_softbei_submission.*）
+# 源码打包脚本产出
 dist/
 
 # ========================

@@ -247,7 +247,7 @@ export function Scenarios() {
             title={<h2 className={`${ui.titleH2} mb-4`}>映射六类检修适配场景</h2>}
             description={
               <p className={`${ui.subtitle} mx-auto max-w-2xl`}>
-                保留行业覆盖视角，重点展示机泵检修、多模态检索与案例回流这类赛题适配落点
+                保留行业覆盖视角，重点展示机泵检修、多模态检索与案例回流这些核心业务落点
               </p>
             }
           />

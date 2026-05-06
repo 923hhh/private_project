@@ -39,7 +39,7 @@ const navItems: NavItem[] = [
       {
         label: "业务价值",
         href: "#value",
-        description: "围绕赛题要求构建三项核心能力",
+        description: "围绕检测系统构建三项核心能力",
       },
     ],
   },
