@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { toast, Toaster } from "sonner";
+import { MaintenanceAuthProvider } from "@/features/auth/maintenance-auth";
 import { ThemeProvider } from "@/shared/providers/theme-provider";
 import { ThemeToggle } from "@/shared/components/ui/theme-toggle";
 import { MAINTENANCE_AUTH_EXPIRED_EVENT } from "@/features/auth/lib/token-store";
@@ -41,16 +42,18 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       storageKey="themePreference"
       disableTransitionOnChange
     >
-      {children}
-      <ThemeToggle />
-      <Toaster
-        position="top-right"
-        richColors
-        closeButton
-        toastOptions={{
-          duration: 2200,
-        }}
-      />
+      <MaintenanceAuthProvider>
+        {children}
+        <ThemeToggle />
+        <Toaster
+          position="top-right"
+          richColors
+          closeButton
+          toastOptions={{
+            duration: 2200,
+          }}
+        />
+      </MaintenanceAuthProvider>
     </ThemeProvider>
   );
 }

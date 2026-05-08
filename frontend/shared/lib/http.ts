@@ -366,12 +366,97 @@ export async function maintenanceLogin(username: string, password: string) {
   }
   const data = json?.data ?? json;
   if (!data?.access_token) throw new Error("登录响应缺少 access_token");
-  return data as { access_token: string; token_type: string; user: { id: number; username: string } };
+  return data as {
+    access_token: string;
+    token_type: string;
+    user: MaintenanceUser;
+  };
 }
 
-export async function listWorkOrders(token: string | null, page = 1, status?: string) {
+export type MaintenanceRole = "worker" | "expert" | "safety" | "admin";
+
+export interface MaintenanceUser {
+  id: number;
+  username: string;
+  display_name: string;
+  roles: MaintenanceRole[];
+}
+
+export interface WorkOrderAssignee extends MaintenanceUser {}
+
+export interface MaintenanceNotificationItem {
+  id: number;
+  kind: string;
+  title: string;
+  detail: string;
+  link_url?: string | null;
+  read: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchMaintenanceMe(token: string | null) {
+  return maintenanceJson<MaintenanceUser>("/api/v1/maintenance/auth/me", {}, token);
+}
+
+export async function fetchKnowledgePublishConsole(token: string | null) {
+  return maintenanceJson<KnowledgePublishConsolePayload>("/api/v1/maintenance/knowledge-articles/publish-console", {}, token);
+}
+
+export async function fetchKnowledgeArticleVersions(token: string | null, articleId: number) {
+  return maintenanceJson<KnowledgeVersionListPayload>(`/api/v1/maintenance/knowledge-articles/${articleId}/versions`, {}, token);
+}
+
+export async function publishKnowledgeArticle(token: string | null, articleId: number) {
+  return maintenanceJson<KnowledgePublishListItem>(`/api/v1/maintenance/knowledge-articles/${articleId}/publish`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  }, token);
+}
+
+export async function withdrawKnowledgeArticle(token: string | null, articleId: number) {
+  return maintenanceJson<KnowledgePublishListItem>(`/api/v1/maintenance/knowledge-articles/${articleId}/withdraw`, {
+    method: "POST",
+  }, token);
+}
+
+export async function listMaintenanceNotifications(token: string | null, limit = 20) {
+  return maintenanceJson<{ items: MaintenanceNotificationItem[]; unread_count: number }>(
+    `/api/v1/maintenance/notifications?limit=${limit}`,
+    {},
+    token,
+  );
+}
+
+export async function markMaintenanceNotificationRead(token: string | null, notificationId: number) {
+  return maintenanceJson<MaintenanceNotificationItem>(
+    `/api/v1/maintenance/notifications/${notificationId}/read`,
+    { method: "PATCH" },
+    token,
+  );
+}
+
+export async function markAllMaintenanceNotificationsRead(token: string | null) {
+  return maintenanceJson<{ success: boolean }>(
+    "/api/v1/maintenance/notifications/read-all",
+    { method: "POST" },
+    token,
+  );
+}
+
+export async function listWorkOrders(
+  token: string | null,
+  page = 1,
+  status?: string,
+  options?: {
+    assignmentRole?: "worker" | "expert" | "safety";
+    assignmentState?: "assigned" | "unassigned" | "mine";
+  },
+) {
   const sp = new URLSearchParams({ page: String(page), page_size: "50" });
   if (status) sp.set("status", status);
+  if (options?.assignmentRole) sp.set("assignment_role", options.assignmentRole);
+  if (options?.assignmentState) sp.set("assignment_state", options.assignmentState);
   return maintenanceJson<WorkOrderListPayload>(`/api/v1/maintenance/work-orders?${sp.toString()}`, {}, token);
 }
 
@@ -439,6 +524,41 @@ export async function fetchWorkOrderDetail(token: string | null, workOrderId: nu
   return maintenanceJson<WorkOrderDetailPayload>(`/api/v1/maintenance/work-orders/${workOrderId}`, {}, token);
 }
 
+export async function fetchWorkOrderAssignmentCandidates(
+  token: string | null,
+  role?: "worker" | "expert" | "safety",
+) {
+  const sp = new URLSearchParams();
+  if (role) sp.set("role", role);
+  return maintenanceJson<{ items: WorkOrderAssignee[] }>(
+    `/api/v1/maintenance/work-orders/assignment-candidates${sp.toString() ? `?${sp.toString()}` : ""}`,
+    {},
+    token,
+  );
+}
+
+export interface WorkOrderAssignmentUpdatePayload {
+  assigned_worker_user_id?: number | null;
+  assigned_expert_user_id?: number | null;
+  assigned_safety_user_id?: number | null;
+  current_owner_user_id?: number | null;
+}
+
+export async function updateWorkOrderAssignment(
+  token: string | null,
+  workOrderId: number,
+  body: WorkOrderAssignmentUpdatePayload,
+) {
+  return maintenanceJson<WorkOrderDetailPayload>(
+    `/api/v1/maintenance/work-orders/${workOrderId}/assignment`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    },
+    token,
+  );
+}
+
 export async function fetchWorkOrderEvents(token: string | null, workOrderId: number) {
   return maintenanceJson<{ items: WorkOrderEventItem[]; total: number; page: number; page_size: number }>(
     `/api/v1/maintenance/work-orders/${workOrderId}/events`,
@@ -482,6 +602,14 @@ export async function enterWorkOrderMaintenance(token: string | null, workOrderI
 export async function completeWorkOrderMaintenance(token: string | null, workOrderId: number) {
   return maintenanceJson<Record<string, unknown>>(
     `/api/v1/maintenance/work-orders/${workOrderId}/actions/complete-maintenance`,
+    { method: "POST" },
+    token,
+  );
+}
+
+export async function acceptWorkOrderFillReview(token: string | null, workOrderId: number) {
+  return maintenanceJson<Record<string, unknown>>(
+    `/api/v1/maintenance/work-orders/${workOrderId}/actions/accept-fill-review`,
     { method: "POST" },
     token,
   );
@@ -581,6 +709,37 @@ export async function runWorkOrderRetrieval(
     work_order: WorkOrderItem;
   }>(
     `/api/v1/maintenance/work-orders/${workOrderId}/retrieval`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+    token,
+  );
+}
+
+export interface ApprovalTaskItem {
+  id: number;
+  work_order_id: number;
+  step_no: number;
+  status: string;
+  created_at: string;
+}
+
+export async function listApprovalTasks(token: string | null) {
+  return maintenanceJson<{ items: ApprovalTaskItem[]; total: number; page: number; page_size: number }>(
+    "/api/v1/maintenance/approval-tasks",
+    {},
+    token,
+  );
+}
+
+export async function resolveApprovalTask(
+  token: string | null,
+  approvalTaskId: number,
+  body: { status: "approved" | "rejected" | "need_more_info"; comment?: string },
+) {
+  return maintenanceJson<Record<string, unknown>>(
+    `/api/v1/maintenance/approval-tasks/${approvalTaskId}/resolve`,
     {
       method: "POST",
       body: JSON.stringify(body),
@@ -943,6 +1102,46 @@ export interface KnowledgeDocumentListResponse {
   documents: KnowledgeDocumentListItem[];
 }
 
+export interface KnowledgePublishListItem {
+  id: number;
+  series_id: number;
+  title: string;
+  body?: string | null;
+  body_excerpt?: string | null;
+  status: string;
+  version: number;
+  source_work_order_id?: number | null;
+  reviewer_expert_user_id?: number | null;
+  reviewed_by_name?: string | null;
+  publisher_admin_user_id?: number | null;
+  published_by_name?: string | null;
+  published_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  retrieval_indexed: boolean;
+  retrieval_status_label: string;
+  retrieval_document_id?: number | null;
+  retrieval_document_status?: string | null;
+}
+
+export interface KnowledgePublishConsolePayload {
+  summary: {
+    pending_publish_count: number;
+    current_effective_count: number;
+    withdrawn_count: number;
+    retrieval_enabled_count: number;
+  };
+  pending_publish_items: KnowledgePublishListItem[];
+  current_effective_items: KnowledgePublishListItem[];
+  recent_version_records: KnowledgePublishListItem[];
+}
+
+export interface KnowledgeVersionListPayload {
+  article_id: number;
+  series_id: number;
+  items: KnowledgePublishListItem[];
+}
+
 export interface KnowledgeDocumentListItem {
   id: number;
   title: string;
@@ -1022,6 +1221,15 @@ export interface WorkOrderItem {
   maintenance_level: string;
   current_step_no?: number | null;
   source_task_id?: number | null;
+  sla_hours?: number | null;
+  sla_deadline?: string | null;
+  is_overdue?: boolean;
+  assignees: {
+    worker: WorkOrderAssignee | null;
+    expert: WorkOrderAssignee | null;
+    safety: WorkOrderAssignee | null;
+  };
+  current_owner: WorkOrderAssignee | null;
   created_at: string;
   updated_at: string;
 }

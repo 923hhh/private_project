@@ -1001,7 +1001,7 @@ export default function TasksPage() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="搜索任务ID或症状..."
+                placeholder="搜索任务ID或故障描述..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="app-input w-full py-2 pl-9 pr-4 sm:w-64"
@@ -1081,7 +1081,7 @@ export default function TasksPage() {
                         创建 / 更新
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
-                        症状描述
+                        故障描述
                       </th>
                       <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider">
                         任务进度

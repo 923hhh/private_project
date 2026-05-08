@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -13,6 +13,7 @@ import pytest_asyncio
 from alembic import command
 from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 
 from app.core.config import get_settings
 from app.core.database import get_session
@@ -324,6 +325,133 @@ async def test_tc_wo_002_create_s1_and_tc_wo_003_fill_wrong_state(client: AsyncC
 
 
 @pytest.mark.asyncio
+async def test_enter_maintenance_binds_template_with_level_fallback(client: AsyncClient, maintenance_session_factory):
+    tok = await _login(client, "tc_worker")
+    created = await client.post(
+        f"{PREFIX}/work-orders",
+        json={"device_id": 1, "maintenance_level": "standard"},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert created.status_code == 200
+    wo_id = created.json()["data"]["id"]
+
+    entered = await client.post(
+        f"{PREFIX}/work-orders/{wo_id}/actions/enter-maintenance",
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert entered.status_code == 200
+    payload = entered.json()["data"]["work_order"]
+    assert payload["status"] == "S7"
+    assert payload["flow_template_id"] is not None
+    assert payload["current_step_no"] == 1
+
+
+@pytest.mark.asyncio
+async def test_work_order_detail_rebinds_template_for_existing_s7_work_order(client: AsyncClient, maintenance_session_factory):
+    tok = await _login(client, "tc_worker")
+    created = await client.post(
+        f"{PREFIX}/work-orders",
+        json={"device_id": 1, "maintenance_level": "standard"},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    wo_id = created.json()["data"]["id"]
+    entered = await client.post(
+        f"{PREFIX}/work-orders/{wo_id}/actions/enter-maintenance",
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert entered.status_code == 200
+
+    async with maintenance_session_factory() as session:
+        await session.execute(
+            text("update work_orders set flow_template_id = null, current_step_no = null where id = :wo_id"),
+            {"wo_id": wo_id},
+        )
+        await session.commit()
+
+    detail = await client.get(
+        f"{PREFIX}/work-orders/{wo_id}",
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert detail.status_code == 200
+    payload = detail.json()["data"]
+    assert payload["status"] == "S7"
+    assert payload["flow_template_id"] is not None
+    assert payload["current_step_no"] == 1
+    assert payload["flow_template"]["steps_json"]
+
+
+@pytest.mark.asyncio
+async def test_confirm_high_risk_step_creates_approval_and_blocks_until_resolved(
+    client: AsyncClient,
+    maintenance_session_factory,
+):
+    tok_w = await _login(client, "tc_worker")
+    tok_s = await _login(client, "tc_safety")
+    created = await client.post(
+        f"{PREFIX}/work-orders",
+        json={"device_id": 1, "maintenance_level": "standard"},
+        headers={"Authorization": f"Bearer {tok_w}"},
+    )
+    assert created.status_code == 200
+    wo_id = created.json()["data"]["id"]
+
+    entered = await client.post(
+        f"{PREFIX}/work-orders/{wo_id}/actions/enter-maintenance",
+        headers={"Authorization": f"Bearer {tok_w}"},
+    )
+    assert entered.status_code == 200
+
+    first_step = await client.post(
+        f"{PREFIX}/work-orders/{wo_id}/steps/confirm",
+        json={"step_no": 1, "mark_done": True},
+        headers={"Authorization": f"Bearer {tok_w}"},
+    )
+    assert first_step.status_code == 200
+    assert first_step.json()["data"]["current_step_no"] == 2
+
+    second_step = await client.post(
+        f"{PREFIX}/work-orders/{wo_id}/steps/confirm",
+        json={"step_no": 2, "mark_done": True},
+        headers={"Authorization": f"Bearer {tok_w}"},
+    )
+    assert second_step.status_code == 200
+    assert second_step.json()["data"]["business_code"] == "APPROVAL_REQUIRED"
+
+    detail_waiting = await client.get(
+        f"{PREFIX}/work-orders/{wo_id}",
+        headers={"Authorization": f"Bearer {tok_w}"},
+    )
+    assert detail_waiting.status_code == 200
+    assert detail_waiting.json()["data"]["status"] == "S6"
+    assert detail_waiting.json()["data"]["current_step_no"] == 2
+
+    tasks = await client.get(
+        f"{PREFIX}/approval-tasks",
+        headers={"Authorization": f"Bearer {tok_s}"},
+    )
+    assert tasks.status_code == 200
+    task_items = tasks.json()["data"]["items"]
+    task_row = next(item for item in task_items if item["work_order_id"] == wo_id and item["step_no"] == 2)
+
+    resolved = await client.post(
+        f"{PREFIX}/approval-tasks/{task_row['id']}/resolve",
+        json={"status": "approved", "comment": "同意执行高风险工步"},
+        headers={"Authorization": f"Bearer {tok_s}"},
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["data"]["work_order"]["status"] == "S7"
+
+    third_call = await client.post(
+        f"{PREFIX}/work-orders/{wo_id}/steps/confirm",
+        json={"step_no": 2, "mark_done": True},
+        headers={"Authorization": f"Bearer {tok_w}"},
+    )
+    assert third_call.status_code == 200
+    assert third_call.json()["data"]["confirmed_step_no"] == 2
+    assert third_call.json()["data"]["current_step_no"] == 3
+
+
+@pytest.mark.asyncio
 async def test_tc_rag_retrieval_soft_fail_200(client: AsyncClient, maintenance_session_factory):
     tok = await _login(client, "tc_worker")
     r = await client.post(
@@ -442,6 +570,240 @@ async def test_tc_auth_004_worker_forbidden_admin(client: AsyncClient):
     assert r.status_code == 403
 
 
+@pytest.mark.asyncio
+async def test_work_order_create_auto_assigns_responsibility_expert(client: AsyncClient):
+    tok = await _login(client, "tc_worker")
+    response = await client.post(
+        f"{PREFIX}/work-orders",
+        json={"device_id": 1},
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["assignees"]["expert"]["username"] == "tc_expert"
+    assert data["assignees"]["worker"] is None
+    assert data["assignees"]["safety"] is None
+    assert data["current_owner"] is None
+
+
+@pytest.mark.asyncio
+async def test_work_order_assignment_update_and_filters(client: AsyncClient):
+    tok_admin = await _login(client, "tc_admin")
+    tok_worker = await _login(client, "tc_worker")
+
+    created = await client.post(
+        f"{PREFIX}/work-orders",
+        json={"device_id": 1},
+        headers={"Authorization": f"Bearer {tok_worker}"},
+    )
+    assert created.status_code == 200, created.text
+    wo_id = created.json()["data"]["id"]
+
+    candidates_resp = await client.get(
+        f"{PREFIX}/work-orders/assignment-candidates",
+        headers={"Authorization": f"Bearer {tok_admin}"},
+    )
+    assert candidates_resp.status_code == 200, candidates_resp.text
+    candidates = candidates_resp.json()["data"]["items"]
+    by_username = {item["username"]: item for item in candidates}
+
+    updated = await client.patch(
+        f"{PREFIX}/work-orders/{wo_id}/assignment",
+        json={
+            "assigned_worker_user_id": by_username["tc_worker"]["id"],
+            "assigned_expert_user_id": by_username["tc_expert"]["id"],
+            "assigned_safety_user_id": by_username["tc_safety"]["id"],
+            "current_owner_user_id": by_username["tc_worker"]["id"],
+        },
+        headers={"Authorization": f"Bearer {tok_admin}"},
+    )
+    assert updated.status_code == 200, updated.text
+    payload = updated.json()["data"]
+    assert payload["assignees"]["worker"]["username"] == "tc_worker"
+    assert payload["assignees"]["expert"]["username"] == "tc_expert"
+    assert payload["assignees"]["safety"]["username"] == "tc_safety"
+    assert payload["current_owner"]["username"] == "tc_worker"
+
+    mine_resp = await client.get(
+        f"{PREFIX}/work-orders?assignment_state=mine",
+        headers={"Authorization": f"Bearer {tok_worker}"},
+    )
+    assert mine_resp.status_code == 200, mine_resp.text
+    assert any(item["id"] == wo_id for item in mine_resp.json()["data"]["items"])
+
+    expert_role_resp = await client.get(
+        f"{PREFIX}/work-orders?assignment_role=expert&assignment_state=assigned",
+        headers={"Authorization": f"Bearer {tok_admin}"},
+    )
+    assert expert_role_resp.status_code == 200, expert_role_resp.text
+    assert any(item["id"] == wo_id for item in expert_role_resp.json()["data"]["items"])
+
+    unassigned_resp = await client.get(
+        f"{PREFIX}/work-orders?assignment_state=unassigned",
+        headers={"Authorization": f"Bearer {tok_admin}"},
+    )
+    assert unassigned_resp.status_code == 200, unassigned_resp.text
+    assert all(item["id"] != wo_id for item in unassigned_resp.json()["data"]["items"])
+
+
+@pytest.mark.asyncio
+async def test_work_order_assignment_validation_and_permission(client: AsyncClient):
+    tok_worker = await _login(client, "tc_worker")
+    tok_expert = await _login(client, "tc_expert")
+
+    created = await client.post(
+        f"{PREFIX}/work-orders",
+        json={"device_id": 1},
+        headers={"Authorization": f"Bearer {tok_worker}"},
+    )
+    assert created.status_code == 200, created.text
+    wo_id = created.json()["data"]["id"]
+
+    forbidden = await client.patch(
+        f"{PREFIX}/work-orders/{wo_id}/assignment",
+        json={"assigned_worker_user_id": 1},
+        headers={"Authorization": f"Bearer {tok_worker}"},
+    )
+    assert forbidden.status_code == 403
+
+    candidates_resp = await client.get(
+        f"{PREFIX}/work-orders/assignment-candidates",
+        headers={"Authorization": f"Bearer {tok_expert}"},
+    )
+    assert candidates_resp.status_code == 200, candidates_resp.text
+    candidates = candidates_resp.json()["data"]["items"]
+    by_username = {item["username"]: item for item in candidates}
+
+    invalid_role = await client.patch(
+        f"{PREFIX}/work-orders/{wo_id}/assignment",
+        json={"assigned_worker_user_id": by_username["tc_expert"]["id"]},
+        headers={"Authorization": f"Bearer {tok_expert}"},
+    )
+    assert invalid_role.status_code == 422
+    assert invalid_role.json()["business_code"] == "INVALID_ASSIGNMENT_ROLE"
+
+    invalid_owner = await client.patch(
+        f"{PREFIX}/work-orders/{wo_id}/assignment",
+        json={
+            "assigned_expert_user_id": by_username["tc_expert"]["id"],
+            "current_owner_user_id": by_username["tc_safety"]["id"],
+        },
+        headers={"Authorization": f"Bearer {tok_expert}"},
+    )
+    assert invalid_owner.status_code == 422
+    assert invalid_owner.json()["business_code"] == "INVALID_CURRENT_OWNER"
+
+
+@pytest.mark.asyncio
+async def test_notifications_list_and_mark_read(client: AsyncClient, maintenance_session_factory, seed_users):
+    from app.models.knowledge import MaintenanceCase
+    from app.models.maintenance_domain import WorkOrder
+    from app.models.tasks import MaintenanceTask
+
+    async with maintenance_session_factory() as session:
+        session.add(
+            WorkOrder(
+                device_id=1,
+                status="S1",
+                maintenance_level="紧急检修",
+                created_by_user_id=seed_users["worker"],
+                current_owner_user_id=seed_users["worker"],
+                created_at=_naive_utc() - timedelta(hours=3),
+                updated_at=_naive_utc(),
+            )
+        )
+        session.add(
+            MaintenanceTask(
+                title="通知测试任务",
+                equipment_type="pump_test",
+                maintenance_level="计划定修",
+                status="completed",
+                created_at=_naive_utc(),
+                updated_at=_naive_utc(),
+            )
+        )
+        session.add(
+            MaintenanceCase(
+                title="通知测试案例",
+                equipment_type="pump_test",
+                symptom_description="待审核案例",
+                status="pending_review",
+                created_at=_naive_utc(),
+                updated_at=_naive_utc(),
+            )
+        )
+        await session.commit()
+
+    tok_expert = await _login(client, "tc_expert")
+    list_resp = await client.get(f"{PREFIX}/notifications?limit=10", headers={"Authorization": f"Bearer {tok_expert}"})
+    assert list_resp.status_code == 200, list_resp.text
+    payload = list_resp.json()["data"]
+    titles = [item["title"] for item in payload["items"]]
+    assert "工单超时预警" in titles
+    assert "诊断任务完成" in titles
+    assert "新案例待审核" in titles
+    assert payload["unread_count"] >= 1
+
+    target = payload["items"][0]
+    mark_resp = await client.patch(
+        f"{PREFIX}/notifications/{target['id']}/read",
+        headers={"Authorization": f"Bearer {tok_expert}"},
+    )
+    assert mark_resp.status_code == 200, mark_resp.text
+    assert mark_resp.json()["data"]["read"] is True
+
+    mark_all_resp = await client.post(f"{PREFIX}/notifications/read-all", headers={"Authorization": f"Bearer {tok_expert}"})
+    assert mark_all_resp.status_code == 200, mark_all_resp.text
+
+
+@pytest.mark.asyncio
+async def test_delete_knowledge_document_removes_graph_visibility(client: AsyncClient, maintenance_session_factory):
+    from app.models.knowledge import KnowledgeDocument, KnowledgeRelation, MaintenanceCase
+
+    async with maintenance_session_factory() as session:
+        document = KnowledgeDocument(
+            title="图谱删除联动测试文档",
+            source_name="graph-delete-test.pdf",
+            source_type="manual",
+            equipment_type="pump_test",
+            content="test content",
+            status="published",
+            created_at=_naive_utc(),
+            updated_at=_naive_utc(),
+        )
+        case = MaintenanceCase(
+            title="图谱删除联动测试案例",
+            equipment_type="pump_test",
+            symptom_description="case symptom",
+            status="approved",
+            created_at=_naive_utc(),
+            updated_at=_naive_utc(),
+        )
+        session.add_all([document, case])
+        await session.flush()
+        session.add(
+            KnowledgeRelation(
+                source_kind="maintenance_case",
+                source_id=case.id,
+                target_kind="knowledge_document",
+                target_id=document.id,
+                relation_type="references",
+                created_at=_naive_utc(),
+            )
+        )
+        await session.commit()
+        document_id = document.id
+
+    graph_before = await client.get("/api/v1/knowledge/graph?kind=knowledge_document&limit=50")
+    assert graph_before.status_code == 200, graph_before.text
+    assert any(node["label"] == "图谱删除联动测试文档" for node in graph_before.json()["nodes"])
+
+    delete_resp = await client.delete(f"/api/v1/knowledge/documents/{document_id}")
+    assert delete_resp.status_code == 200, delete_resp.text
+
+    graph_after = await client.get("/api/v1/knowledge/graph?kind=knowledge_document&limit=50")
+    assert graph_after.status_code == 200, graph_after.text
+    assert all(node["label"] != "图谱删除联动测试文档" for node in graph_after.json()["nodes"])
 @pytest.mark.asyncio
 async def test_p1_retrieval_stream_and_asr_placeholder(client: AsyncClient):
     tok = await _login(client, "tc_worker")
@@ -677,6 +1039,7 @@ async def test_tc_app_001_002_003_approval_flow(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_tc_guide_001_high_risk_step_blocked(client: AsyncClient):
     tok = await _login(client, "tc_worker")
+    tok_s = await _login(client, "tc_safety")
     wo_id, _ = await _create_wo_and_retrieval(client, tok)
     await client.post(
         f"{PREFIX}/work-orders/{wo_id}/actions/enter-maintenance",
@@ -693,8 +1056,22 @@ async def test_tc_guide_001_high_risk_step_blocked(client: AsyncClient):
         json={"step_no": 2, "mark_done": True},
         headers={"Authorization": f"Bearer {tok}"},
     )
-    assert r2.status_code == 409
-    assert r2.json()["business_code"] == "STEP_NOT_ALLOWED"
+    assert r2.status_code == 200
+    assert r2.json()["data"]["business_code"] == "APPROVAL_REQUIRED"
+
+    detail_waiting = await client.get(
+        f"{PREFIX}/work-orders/{wo_id}",
+        headers={"Authorization": f"Bearer {tok}"},
+    )
+    assert detail_waiting.status_code == 200
+    assert detail_waiting.json()["data"]["status"] == "S6"
+
+    tasks = await client.get(
+        f"{PREFIX}/approval-tasks",
+        headers={"Authorization": f"Bearer {tok_s}"},
+    )
+    assert tasks.status_code == 200
+    assert any(item["work_order_id"] == wo_id and item["step_no"] == 2 for item in tasks.json()["data"]["items"])
 
 
 @pytest.mark.asyncio
@@ -1185,16 +1562,120 @@ async def test_tc_kb_002_series_publish_conflict(client: AsyncClient, maintenanc
     )
     assert r.status_code == 409
     assert r.json()["business_code"] == "SERIES_PUBLISHED_CONFLICT"
+
+
+@pytest.mark.asyncio
+async def test_tc_kb_publish_console_and_versions(client: AsyncClient, maintenance_session_factory):
+    from app.models.maintenance_domain import KnowledgeArticle
+
+    naive = _naive_utc()
     async with maintenance_session_factory() as session:
-        n_pub = (
-            await session.execute(
-                select(func.count()).select_from(KnowledgeArticle).where(
-                    KnowledgeArticle.series_id == s,
-                    KnowledgeArticle.status == "published",
-                )
-            )
-        ).scalar_one()
-        assert n_pub == 1
+        session.add_all(
+            [
+                KnowledgeArticle(
+                    series_id=991001,
+                    title="待发布条目",
+                    body="待发布正文，足够长以便后续检索展示。",
+                    status="pending_publish",
+                    version=2,
+                    created_at=naive,
+                    updated_at=naive,
+                ),
+                KnowledgeArticle(
+                    series_id=991002,
+                    title="当前生效版本",
+                    body="已发布正文，足够长以便检索。",
+                    status="published",
+                    version=3,
+                    created_at=naive,
+                    updated_at=naive,
+                    published_at=naive,
+                ),
+                KnowledgeArticle(
+                    series_id=991002,
+                    title="历史版本",
+                    body="旧版正文。",
+                    status="withdrawn",
+                    version=2,
+                    created_at=naive,
+                    updated_at=naive,
+                ),
+            ]
+        )
+        await session.commit()
+
+    tok_a = await _login(client, "tc_admin")
+    console = await client.get(
+        f"{PREFIX}/knowledge-articles/publish-console",
+        headers={"Authorization": f"Bearer {tok_a}"},
+    )
+    assert console.status_code == 200
+    payload = console.json()["data"]
+    assert payload["summary"]["pending_publish_count"] >= 1
+    assert any(item["status"] == "pending_publish" for item in payload["pending_publish_items"])
+    assert any(item["status"] == "published" for item in payload["current_effective_items"])
+
+    current_article = next(item for item in payload["current_effective_items"] if item["series_id"] == 991002)
+    versions = await client.get(
+        f"{PREFIX}/knowledge-articles/{current_article['id']}/versions",
+        headers={"Authorization": f"Bearer {tok_a}"},
+    )
+    assert versions.status_code == 200
+    version_items = versions.json()["data"]["items"]
+    assert [item["version"] for item in version_items[:2]] == [3, 2]
+
+
+@pytest.mark.asyncio
+async def test_tc_kb_withdraw_removes_document_from_search(client: AsyncClient, maintenance_session_factory):
+    from app.models.maintenance_domain import KnowledgeArticle
+
+    naive = _naive_utc()
+    unique_query = "撤回验证专用故障短语 QX-20260507"
+    async with maintenance_session_factory() as session:
+        article = KnowledgeArticle(
+            series_id=992001,
+            title="撤回验证知识",
+            body=f"这是用于检索撤回回归的正文，包含唯一短语：{unique_query}，用于确认撤回后无法再被召回。",
+            status="pending_publish",
+            version=1,
+            created_at=naive,
+            updated_at=naive,
+        )
+        session.add(article)
+        await session.commit()
+        await session.refresh(article)
+        article_id = article.id
+
+    tok_a = await _login(client, "tc_admin")
+    pub = await client.post(
+        f"{PREFIX}/knowledge-articles/{article_id}/publish",
+        json={},
+        headers={"Authorization": f"Bearer {tok_a}"},
+    )
+    assert pub.status_code == 200
+    assert pub.json()["data"]["retrieval_indexed"] is True
+
+    search_before = await client.post(
+        "/api/v1/knowledge/search",
+        json={"query": unique_query, "limit": 5},
+    )
+    assert search_before.status_code == 200
+    assert any(item["title"] == "撤回验证知识" for item in search_before.json()["results"])
+
+    withdraw = await client.post(
+        f"{PREFIX}/knowledge-articles/{article_id}/withdraw",
+        headers={"Authorization": f"Bearer {tok_a}"},
+    )
+    assert withdraw.status_code == 200
+    assert withdraw.json()["data"]["status"] == "withdrawn"
+    assert withdraw.json()["data"]["retrieval_indexed"] is False
+
+    search_after = await client.post(
+        "/api/v1/knowledge/search",
+        json={"query": unique_query, "limit": 5},
+    )
+    assert search_after.status_code == 200
+    assert all(item["title"] != "撤回验证知识" for item in search_after.json()["results"])
 
 
 @pytest.mark.asyncio

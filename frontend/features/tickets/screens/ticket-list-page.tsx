@@ -3,15 +3,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { useMaintenanceAuth } from "@/features/auth/maintenance-auth";
 import {
-  completeWorkOrderMaintenance,
+  canDeleteWorkOrder,
+} from "@/features/auth/permissions";
+import {
   deleteWorkOrder,
-  enterWorkOrderMaintenance,
   isMaintenanceAuthExpiredError,
   listWorkOrders,
   fetchMaintenanceHealth,
   listMaintenanceDevices,
   type MaintenanceDeviceItem,
+  type MaintenanceUser,
 } from "@/features/tickets/api";
 import { DEMO_MODE_CHANGED_EVENT, isDemoMode } from "@/shared/lib/demo-mode";
 import { getMaintenanceToken } from "@/features/auth/lib/token-store";
@@ -72,10 +75,17 @@ interface Ticket {
     | "S10"
     | "SX";
   assignee: string;
+  currentOwner: MaintenanceUser | null;
+  assignees: {
+    worker: MaintenanceUser | null;
+    expert: MaintenanceUser | null;
+    safety: MaintenanceUser | null;
+  };
   reporter: string;
   createdAt: string;
   updatedAt: string;
   slaDeadline: string;
+  isOverdue?: boolean;
   tags: string[];
   relatedAlerts: number;
   sourceTaskId?: number;
@@ -84,6 +94,8 @@ interface Ticket {
 }
 
 type TicketStatusFilter = "all" | "todo" | "active" | "done" | "overdue";
+type AssignmentRoleFilter = "all" | "worker" | "expert" | "safety";
+type AssignmentStateFilter = "all" | "assigned" | "unassigned" | "mine";
 
 const demoTickets: Ticket[] = [
   {
@@ -93,6 +105,8 @@ const demoTickets: Ticket[] = [
     priority: "emergency",
     status: "S7",
     assignee: "张工",
+    currentOwner: null,
+    assignees: { worker: null, expert: null, safety: null },
     reporter: "系统",
     createdAt: "2026-04-24 19:40",
     updatedAt: "2026-04-24 20:12",
@@ -110,6 +124,8 @@ const demoTickets: Ticket[] = [
     priority: "standard",
     status: "S1",
     assignee: "未分配",
+    currentOwner: null,
+    assignees: { worker: null, expert: null, safety: null },
     reporter: "李工",
     createdAt: "2026-04-24 18:20",
     updatedAt: "2026-04-24 19:05",
@@ -127,6 +143,8 @@ const demoTickets: Ticket[] = [
     priority: "routine",
     status: "S3",
     assignee: "李工",
+    currentOwner: null,
+    assignees: { worker: null, expert: null, safety: null },
     reporter: "人工创建",
     createdAt: "2026-04-24 16:10",
     updatedAt: "2026-04-24 18:42",
@@ -140,17 +158,28 @@ const demoTickets: Ticket[] = [
 ];
 
 function isTicketOverdue(ticket: Ticket): boolean {
+  if (typeof ticket.isOverdue === "boolean") {
+    return ticket.isOverdue;
+  }
   return (
     new Date(ticket.slaDeadline) < new Date() &&
     !["S10", "SX"].includes(ticket.status)
   );
 }
 
+function isTodoTicket(ticket: Ticket): boolean {
+  return ["S1", "S3", "S5"].includes(ticket.status) && !isTicketOverdue(ticket);
+}
+
+function isActiveTicket(ticket: Ticket): boolean {
+  return ["S2", "S4", "S6", "S7", "S8", "S9"].includes(ticket.status) && !isTicketOverdue(ticket);
+}
+
 function matchesStatusFilter(ticket: Ticket, filter: TicketStatusFilter): boolean {
   if (filter === "all") return true;
   if (filter === "overdue") return isTicketOverdue(ticket);
-  if (filter === "todo") return ["S1", "S3", "S5"].includes(ticket.status);
-  if (filter === "active") return ["S2", "S4", "S6", "S7", "S8", "S9"].includes(ticket.status);
+  if (filter === "todo") return isTodoTicket(ticket);
+  if (filter === "active") return isActiveTicket(ticket);
   return ticket.status === "S10";
 }
 
@@ -198,19 +227,31 @@ function buildTemporarySlaDeadline(
   return deadline.toISOString();
 }
 
+function formatTicketUpdatedAtParts(value: string) {
+  const normalized = String(value || "").trim().replace(" ", "T");
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    return {
+      dateLine: "----:--:--",
+      timeLine: "--:--:--",
+    };
+  }
+  const yyyy = String(date.getFullYear());
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const min = String(date.getMinutes()).padStart(2, "0");
+  const sec = String(date.getSeconds()).padStart(2, "0");
+  return {
+    dateLine: `${yyyy}-${mm}-${dd}`,
+    timeLine: `${hh}:${min}:${sec}`,
+  };
+}
+
 function formatWorkOrderCode(id: number | string) {
   const digits = String(id).match(/\d+/)?.[0];
   if (!digits) return String(id);
   return `WO-${String(Number(digits)).padStart(6, "0")}`;
-}
-
-function canEnterMaintenance(rawStatus?: string) {
-  const normalized = String(rawStatus || "").toUpperCase();
-  return normalized === "S3" || normalized === "S5";
-}
-
-function canCompleteMaintenance(rawStatus?: string) {
-  return String(rawStatus || "").toUpperCase() === "S7";
 }
 
 // 优先级配置
@@ -296,6 +337,12 @@ const statusConfig = {
   },
 };
 
+const overdueStatusMeta = {
+  label: "已超时",
+  badgeClass: "app-badge border-red-500/30 bg-red-500/10 text-red-400",
+  icon: AlertTriangle,
+};
+
 // 统计卡片组件
 function StatCard({
   label,
@@ -337,44 +384,23 @@ function StatCard({
 
 function TicketRowActions({
   ticket,
+  user,
   onRefresh,
   onDelete,
 }: {
   ticket: Ticket;
+  user: MaintenanceUser | null;
   onRefresh: () => Promise<void>;
   onDelete: (ticket: Ticket) => void;
 }) {
+  const canDelete = canDeleteWorkOrder(user);
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(formatWorkOrderCode(ticket.id));
       toast.success("工单编号已复制");
     } catch {
       toast.error("复制失败，请检查浏览器权限");
-    }
-  };
-
-  const handleAction = async (kind: "enter" | "complete") => {
-    const token = getMaintenanceToken();
-    const numericId = Number(ticket.id);
-    if (!token) {
-      toast.error("当前未检测到检修域登录状态");
-      return;
-    }
-    if (!Number.isFinite(numericId)) {
-      toast.error("工单编号无效");
-      return;
-    }
-    try {
-      if (kind === "enter") {
-        await enterWorkOrderMaintenance(token, numericId);
-        toast.success("已进入检修流程");
-      } else {
-        await completeWorkOrderMaintenance(token, numericId);
-        toast.success("已标记为完成检修");
-      }
-      await onRefresh();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "工单操作失败");
     }
   };
 
@@ -403,36 +429,19 @@ function TicketRowActions({
         >
           复制工单号
         </DropdownMenuItem>
-        <DropdownMenuSeparator className="bg-border" />
-        <DropdownMenuItem
-          disabled={!canEnterMaintenance(ticket.rawStatus)}
-          onClick={(e) => {
-            e.preventDefault();
-            void handleAction("enter");
-          }}
-        >
-          进入检修
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          disabled={!canCompleteMaintenance(ticket.rawStatus)}
-          onClick={(e) => {
-            e.preventDefault();
-            void handleAction("complete");
-          }}
-        >
-          完成检修
-        </DropdownMenuItem>
-        <DropdownMenuSeparator className="bg-border" />
-        <DropdownMenuItem
-          variant="destructive"
-          onClick={(e) => {
-            e.preventDefault();
-            onDelete(ticket);
-          }}
-        >
-          <Trash2 className="w-4 h-4" />
-          删除工单
-        </DropdownMenuItem>
+        {canDelete ? <DropdownMenuSeparator className="bg-border" /> : null}
+        {canDelete ? (
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={(e) => {
+              e.preventDefault();
+              onDelete(ticket);
+            }}
+          >
+            <Trash2 className="w-4 h-4" />
+            删除工单
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -441,19 +450,20 @@ function TicketRowActions({
 // 工单行组件
 function TicketRow({
   ticket,
+  user,
   onRefresh,
   onDelete,
 }: {
   ticket: Ticket;
+  user: MaintenanceUser | null;
   onRefresh: () => Promise<void>;
   onDelete: (ticket: Ticket) => void;
 }) {
   const priority = priorityConfig[ticket.priority];
-  const status = statusConfig[ticket.status];
-  const StatusIcon = status.icon;
-
-  // 检查是否超时
   const isOverdue = isTicketOverdue(ticket);
+  const status = isOverdue ? overdueStatusMeta : statusConfig[ticket.status];
+  const StatusIcon = status.icon;
+  const updatedAtParts = formatTicketUpdatedAtParts(ticket.updatedAt);
 
   return (
     <Link href={`/tickets/${ticket.id}`}>
@@ -478,12 +488,6 @@ function TicketRow({
                 <span className={`${priority.badgeClass} px-1.5 py-0.5 text-[10px]`}>
                   {priority.label}
                 </span>
-                {isOverdue && (
-                  <span className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-red-500/20 text-red-400 flex items-center gap-1">
-                    <AlertTriangle className="w-3 h-3" />
-                    已超时
-                  </span>
-                )}
               </div>
               <h3 className="mt-1 truncate text-sm font-medium text-foreground transition-colors group-hover:text-[#5e6ad2]">
                 {ticket.title}
@@ -525,7 +529,10 @@ function TicketRow({
 
           {/* 时间和告警 */}
           <div className="col-span-2">
-            <div className="text-xs text-muted-foreground">{ticket.updatedAt}</div>
+            <div className="text-xs text-muted-foreground">
+              <div>{updatedAtParts.dateLine}</div>
+              <div>{updatedAtParts.timeLine}</div>
+            </div>
             {ticket.relatedAlerts > 0 && (
               <div className="text-xs text-orange-400 mt-1">
                 {ticket.relatedAlerts} 个关联告警
@@ -535,7 +542,7 @@ function TicketRow({
 
           {/* 操作 */}
           <div className="col-span-1 flex justify-end">
-            <TicketRowActions ticket={ticket} onRefresh={onRefresh} onDelete={onDelete} />
+            <TicketRowActions ticket={ticket} user={user} onRefresh={onRefresh} onDelete={onDelete} />
           </div>
         </div>
 
@@ -567,14 +574,11 @@ function TicketRow({
                 <User className="w-3 h-3" />
                 {ticket.assignee}
               </span>
-              <span>{ticket.updatedAt}</span>
-            </div>
-            {isOverdue && (
-              <span className="text-red-400 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3" />
-                已超时
+              <span className="leading-5">
+                <span className="block">{updatedAtParts.dateLine}</span>
+                <span className="block">{updatedAtParts.timeLine}</span>
               </span>
-            )}
+            </div>
           </div>
         </div>
       </div>
@@ -696,6 +700,7 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
 }
 
 export default function TicketsPage() {
+  const { user } = useMaintenanceAuth();
   const [demoEnabled, setDemoEnabled] = useState(false);
   const [realTickets, setRealTickets] = useState<Ticket[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<Ticket | null>(null);
@@ -706,6 +711,8 @@ export default function TicketsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<TicketStatusFilter>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [assignmentRoleFilter, setAssignmentRoleFilter] = useState<AssignmentRoleFilter>("all");
+  const [assignmentStateFilter, setAssignmentStateFilter] = useState<AssignmentStateFilter>("all");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [pageState, setPageState] = useState<
     "normal" | "loading" | "empty" | "error" | "auth"
@@ -723,7 +730,13 @@ export default function TicketsPage() {
         return;
       }
       setPageState("loading");
-      const [orders, ds] = await Promise.all([listWorkOrders(tok, 1), listMaintenanceDevices(tok, 1)]);
+      const [orders, ds] = await Promise.all([
+        listWorkOrders(tok, 1, undefined, {
+          assignmentRole: assignmentRoleFilter === "all" ? undefined : assignmentRoleFilter,
+          assignmentState: assignmentStateFilter === "all" ? undefined : assignmentStateFilter,
+        }),
+        listMaintenanceDevices(tok, 1),
+      ]);
       const byId = new Map<number, MaintenanceDeviceItem>(ds.items.map((d) => [d.id, d]));
       const mapped = orders.items.map((wo) => {
         const device = byId.get(Number(wo.device_id));
@@ -737,11 +750,18 @@ export default function TicketsPage() {
             : `设备ID ${wo.device_id}`,
           priority,
           status: mapWorkOrderStatus(String(wo.status || "")),
-          assignee: "未分配",
+          assignee: wo.current_owner?.display_name || "未分配",
+          currentOwner: wo.current_owner ?? null,
+          assignees: {
+            worker: wo.assignees?.worker ?? null,
+            expert: wo.assignees?.expert ?? null,
+            safety: wo.assignees?.safety ?? null,
+          },
           reporter: "系统",
           createdAt: String(wo.created_at || ""),
           updatedAt: String(wo.updated_at || ""),
-          slaDeadline: buildTemporarySlaDeadline(wo.created_at, priority),
+          slaDeadline: String(wo.sla_deadline || buildTemporarySlaDeadline(wo.created_at, priority)),
+          isOverdue: Boolean(wo.is_overdue),
           tags: device
             ? [device.device_type, device.model, device.asset_code].filter(Boolean)
             : ["检修工单"],
@@ -764,7 +784,7 @@ export default function TicketsPage() {
       }
       setPageState("error");
     }
-  }, []);
+  }, [assignmentRoleFilter, assignmentStateFilter]);
 
   const handleDeleteRequest = useCallback((ticket: Ticket) => {
     setDeleteTarget(ticket);
@@ -818,6 +838,11 @@ export default function TicketsPage() {
     };
   }, [syncWorkOrdersApi]);
 
+  useEffect(() => {
+    if (demoEnabled) return;
+    void syncWorkOrdersApi();
+  }, [assignmentRoleFilter, assignmentStateFilter, demoEnabled, syncWorkOrdersApi]);
+
   // 筛选 + 排序（最新优先 / 最早优先）
   const filteredTickets = useMemo(() => {
     const parseTicketTime = (value: string) => {
@@ -857,7 +882,7 @@ export default function TicketsPage() {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, priorityFilter, searchQuery, sortOrder]);
+  }, [statusFilter, priorityFilter, assignmentRoleFilter, assignmentStateFilter, searchQuery, sortOrder]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -994,6 +1019,34 @@ export default function TicketsPage() {
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             </div>
 
+            <div className="relative">
+              <select
+                value={assignmentRoleFilter}
+                onChange={(e) => setAssignmentRoleFilter(e.target.value as AssignmentRoleFilter)}
+                className="app-select cursor-pointer appearance-none pl-3 pr-8"
+              >
+                <option value="all">全部角色</option>
+                <option value="worker">检修员</option>
+                <option value="expert">专家</option>
+                <option value="safety">安全员</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            </div>
+
+            <div className="relative">
+              <select
+                value={assignmentStateFilter}
+                onChange={(e) => setAssignmentStateFilter(e.target.value as AssignmentStateFilter)}
+                className="app-select cursor-pointer appearance-none pl-3 pr-8"
+              >
+                <option value="all">全部分配状态</option>
+                <option value="assigned">已分配</option>
+                <option value="unassigned">未分配</option>
+                <option value="mine">分配给我</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            </div>
+
             {/* 排序 */}
             <button
               type="button"
@@ -1048,6 +1101,7 @@ export default function TicketsPage() {
                 <TicketRow
                   key={ticket.id}
                   ticket={ticket}
+                  user={user}
                   onRefresh={syncWorkOrdersApi}
                   onDelete={handleDeleteRequest}
                 />

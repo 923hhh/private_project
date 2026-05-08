@@ -108,6 +108,18 @@ class WorkOrder(Base):
     device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(4), default="S1", nullable=False, index=True)
     maintenance_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    assigned_worker_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    assigned_expert_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    assigned_safety_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    current_owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     flow_template_id: Mapped[int | None] = mapped_column(
         ForeignKey("flow_templates.id", ondelete="SET NULL"), nullable=True
     )
@@ -141,6 +153,28 @@ class WorkOrderEvent(Base):
     payload: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_naive, nullable=False)
+
+
+class UserNotification(Base):
+    """用户通知中心消息。"""
+
+    __tablename__ = "user_notifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    detail: Mapped[str] = mapped_column(Text, nullable=False)
+    link_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_naive, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utc_naive, onupdate=_utc_naive, nullable=False
+    )
 
 
 class RetrievalSnapshot(Base):

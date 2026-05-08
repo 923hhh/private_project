@@ -29,22 +29,31 @@ export function ThemeToggle() {
       title={isDark ? "切换到浅色模式" : "切换到深色模式"}
       onClick={() => setThemePreference(isDark ? "light" : "dark")}
       className={cn(
-        "fixed right-6 top-[82px] z-40",
+        "fixed right-6 top-2 z-40",
         "inline-flex h-[56px] w-[28px] items-center rounded-full border p-[3px]",
         "backdrop-blur-[8px]",
         "transition-all duration-[250ms] ease-[cubic-bezier(0.4,0,0.2,1)]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40",
-        "hover:border-brand/45 hover:shadow-[0_0_12px_rgba(16,185,129,0.12)]",
+        "shadow-[0_10px_24px_rgba(15,23,42,0.12)] hover:border-brand/55 hover:shadow-[0_0_16px_rgba(16,185,129,0.18)]",
       )}
       style={{
         background: isDark
-          ? "rgba(16,185,129,0.12)"
-          : "rgba(15,23,42,0.04)",
+          ? "rgba(2,8,23,0.82)"
+          : "rgba(255,255,255,0.92)",
         borderColor: isDark
-          ? "rgba(16,185,129,0.35)"
-          : "rgba(15,23,42,0.14)",
+          ? "rgba(16,185,129,0.58)"
+          : "rgba(15,23,42,0.18)",
       }}
     >
+      <span
+        aria-hidden
+        className={cn(
+          "pointer-events-none absolute left-1/2 -translate-x-1/2 text-[10px] font-medium tracking-[0.02em]",
+          isDark ? "top-[6px] text-emerald-300/90" : "bottom-[6px] text-slate-500",
+        )}
+      >
+        {isDark ? "夜" : "日"}
+      </span>
       <span
         aria-hidden
         className={cn(
@@ -53,19 +62,19 @@ export function ThemeToggle() {
           isDark ? "top-[31px]" : "top-[3px]",
         )}
         style={{
-          background: isDark ? "#0f172a" : "#ffffff",
+          background: isDark ? "#111827" : "#ffffff",
           borderColor: isDark
-            ? "rgba(255,255,255,0.08)"
-            : "rgba(15,23,42,0.10)",
+            ? "rgba(110,231,183,0.32)"
+            : "rgba(15,23,42,0.14)",
           boxShadow: isDark
-            ? "0 0 0 1px rgba(16,185,129,0.18), 0 0 8px rgba(16,185,129,0.12)"
-            : "0 2px 6px rgba(15,23,42,0.10)",
+            ? "0 0 0 1px rgba(16,185,129,0.24), 0 0 10px rgba(16,185,129,0.18)"
+            : "0 4px 12px rgba(15,23,42,0.16)",
         }}
       >
         {isDark ? (
-          <Moon className="h-3 w-3 text-slate-300 opacity-75" />
+          <Moon className="h-3.5 w-3.5 text-emerald-200" />
         ) : (
-          <Sun className="h-3 w-3 text-amber-500 opacity-80" />
+          <Sun className="h-3.5 w-3.5 text-amber-500" />
         )}
       </span>
     </button>,

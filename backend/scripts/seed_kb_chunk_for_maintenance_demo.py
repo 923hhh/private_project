@@ -55,7 +55,7 @@ def main() -> int:
             fault_type=None,
             section_reference=None,
             page_reference=None,
-            content="本段用于本地演示：泄漏处理、密封更换与压力恢复检查要点。",
+            content="本段用于答辩演示：泄漏处理、密封更换与压力恢复检查要点。",
             status="published",
             created_at=now,
             updated_at=now,

@@ -6,6 +6,12 @@ export const ROUTES = {
   marketingLanding: "/landing",
   dashboard: "/dashboard",
   login: "/login",
+  approvalTasks: "/approval-tasks",
+  adminUsers: "/admin/users",
+  adminSystemConfigs: "/admin/system-configs",
+  adminAuditLogs: "/admin/audit-logs",
+  knowledgeReview: "/knowledge/review",
+  knowledgePublish: "/knowledge/publish",
 } as const;
 
 /** 当前为独立 /landing 路由时，Logo 回到 /landing，否则回到首页 / */

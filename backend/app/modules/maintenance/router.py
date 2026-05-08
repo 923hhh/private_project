@@ -81,6 +81,44 @@ async def auth_me(
     return _ok(data)
 
 
+@router.get("/notifications")
+async def notifications_list(
+    ctx: Annotated[CurrentUserCtx, Depends(get_current_user_ctx)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    limit: int = Query(20, ge=1, le=50),
+):
+    try:
+        return _ok(await _svc(session, settings).list_notifications(ctx, limit))
+    except MaintenanceAPIError as e:
+        return _err(status_code=e.status_code, business_code=e.business_code, message=e.message)
+
+
+@router.patch("/notifications/{notification_id}/read")
+async def notifications_mark_read(
+    notification_id: int,
+    ctx: Annotated[CurrentUserCtx, Depends(get_current_user_ctx)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    try:
+        return _ok(await _svc(session, settings).mark_notification_read(notification_id, ctx))
+    except MaintenanceAPIError as e:
+        return _err(status_code=e.status_code, business_code=e.business_code, message=e.message)
+
+
+@router.post("/notifications/read-all")
+async def notifications_mark_all_read(
+    ctx: Annotated[CurrentUserCtx, Depends(get_current_user_ctx)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    try:
+        return _ok(await _svc(session, settings).mark_all_notifications_read(ctx))
+    except MaintenanceAPIError as e:
+        return _err(status_code=e.status_code, business_code=e.business_code, message=e.message)
+
+
 @router.get("/health")
 async def maintenance_health(
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -353,12 +391,37 @@ async def wo_list(
     status: str | None = None,
     device_id: int | None = None,
     mine: bool | None = None,
+    assignment_role: str | None = Query(None, pattern="^(worker|expert|safety)$"),
+    assignment_state: str | None = Query(None, pattern="^(assigned|unassigned|mine)$"),
 ):
-    return _ok(
-        await _svc(session, settings).list_work_orders(
-            ctx, page=page, page_size=page_size, status=status, device_id=device_id, mine=mine
+    try:
+        return _ok(
+            await _svc(session, settings).list_work_orders(
+                ctx,
+                page=page,
+                page_size=page_size,
+                status=status,
+                device_id=device_id,
+                mine=mine,
+                assignment_role=assignment_role,
+                assignment_state=assignment_state,
+            )
         )
-    )
+    except MaintenanceAPIError as e:
+        return _err(status_code=e.status_code, business_code=e.business_code, message=e.message, errors=e.errors)
+
+
+@router.get("/work-orders/assignment-candidates")
+async def wo_assignment_candidates(
+    ctx: Annotated[CurrentUserCtx, Depends(get_current_user_ctx)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    role: str | None = Query(None, pattern="^(worker|expert|safety)$"),
+):
+    try:
+        return _ok(await _svc(session, settings).list_assignment_candidates(ctx, role))
+    except MaintenanceAPIError as e:
+        return _err(status_code=e.status_code, business_code=e.business_code, message=e.message, errors=e.errors)
 
 
 @router.get("/work-orders/{work_order_id}")
@@ -372,6 +435,20 @@ async def wo_get(
         return _ok(await _svc(session, settings).get_work_order_detail(work_order_id, ctx))
     except MaintenanceAPIError as e:
         return _err(status_code=e.status_code, business_code=e.business_code, message=e.message)
+
+
+@router.patch("/work-orders/{work_order_id}/assignment")
+async def wo_update_assignment(
+    work_order_id: int,
+    ctx: Annotated[CurrentUserCtx, Depends(get_current_user_ctx)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    body: dict[str, Any],
+):
+    try:
+        return _ok(await _svc(session, settings).update_work_order_assignment(work_order_id, body, ctx))
+    except MaintenanceAPIError as e:
+        return _err(status_code=e.status_code, business_code=e.business_code, message=e.message, errors=e.errors)
 
 
 @router.delete("/work-orders/{work_order_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -785,9 +862,35 @@ async def kb_list(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status: str | None = None,
+    series_id: int | None = Query(default=None, ge=1),
 ):
     try:
-        return _ok(await _svc(session, settings).list_kb_articles(ctx, status, page, page_size))
+        return _ok(await _svc(session, settings).list_kb_articles(ctx, status, page, page_size, series_id))
+    except MaintenanceAPIError as e:
+        return _err(status_code=e.status_code, business_code=e.business_code, message=e.message)
+
+
+@router.get("/knowledge-articles/publish-console")
+async def kb_publish_console(
+    ctx: Annotated[CurrentUserCtx, Depends(get_current_user_ctx)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    try:
+        return _ok(await _svc(session, settings).get_kb_publish_console(ctx))
+    except MaintenanceAPIError as e:
+        return _err(status_code=e.status_code, business_code=e.business_code, message=e.message)
+
+
+@router.get("/knowledge-articles/{article_id}/versions")
+async def kb_versions(
+    article_id: int,
+    ctx: Annotated[CurrentUserCtx, Depends(get_current_user_ctx)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    try:
+        return _ok(await _svc(session, settings).get_kb_article_versions(article_id, ctx))
     except MaintenanceAPIError as e:
         return _err(status_code=e.status_code, business_code=e.business_code, message=e.message)
 
@@ -816,6 +919,19 @@ async def kb_publish(
 ):
     try:
         return _ok(await _svc(session, settings).publish_kb(article_id, body or {}, ctx))
+    except MaintenanceAPIError as e:
+        return _err(status_code=e.status_code, business_code=e.business_code, message=e.message)
+
+
+@router.post("/knowledge-articles/{article_id}/withdraw")
+async def kb_withdraw(
+    article_id: int,
+    ctx: Annotated[CurrentUserCtx, Depends(require_roles("admin"))],
+    session: Annotated[AsyncSession, Depends(get_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    try:
+        return _ok(await _svc(session, settings).withdraw_kb(article_id, ctx))
     except MaintenanceAPIError as e:
         return _err(status_code=e.status_code, business_code=e.business_code, message=e.message)
 

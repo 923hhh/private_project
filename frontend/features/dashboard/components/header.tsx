@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Bell, Search, Settings, HelpCircle, ChevronDown, Menu, LogIn, LogOut, ShieldCheck, Server, Wrench } from "lucide-react"
+import { Search, Settings, HelpCircle, ChevronDown, Menu, LogIn, LogOut, ShieldCheck, Server, Wrench } from "lucide-react"
 import { pingBackendReadiness, fetchHealth, fetchMaintenanceHealth, getApiBase } from "@/features/dashboard/api"
 import { AppLogoLink } from "@/shared/components/brand/app-logo-link"
+import { NotificationMenu } from "@/shared/components/brand/notification-menu"
 import { ROUTES } from "@/shared/lib/routes"
 import {
   clearMaintenanceToken,
@@ -32,13 +33,6 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu"
 import { toast } from "sonner"
-
-type NotificationItem = {
-  id: number
-  title: string
-  detail: string
-  read: boolean
-}
 
 const dashboardNavItems = [
   { label: "主页", href: ROUTES.marketingHome },
@@ -67,12 +61,6 @@ export function Header() {
   const [healthStatus, setHealthStatus] = useState<string>("未检查")
   const [maintenanceStatus, setMaintenanceStatus] = useState<string>("未检查")
   const [readinessStatus, setReadinessStatus] = useState<string>("未检查")
-  const [notifications, setNotifications] = useState<NotificationItem[]>([
-    { id: 1, title: "工单超时预警", detail: "TK-2024-0891 还有 28 分钟超时", read: false },
-    { id: 2, title: "诊断任务完成", detail: "TSK-2024-0234 已生成诊断结论", read: false },
-    { id: 3, title: "新案例待审核", detail: "CASE-018 已提交待审核", read: true },
-  ])
-  const unreadCount = notifications.filter((item) => !item.read).length
   const searchPool = useMemo(() => [...dashboardNavItems, ...knowledgeSubItems, marketingNavItem], [])
   const searchResults = useMemo(() => {
     const q = searchKeyword.trim().toLowerCase()
@@ -321,46 +309,7 @@ export function Header() {
             <Search className="h-4 w-4" />
           </Button>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="relative h-8 w-8 text-foreground/80 hover:bg-accent hover:text-foreground"
-              >
-                <Bell className="h-4 w-4" />
-                {unreadCount > 0 ? <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[#ef4444]" /> : null}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80 border-border bg-popover p-1 text-popover-foreground">
-              <div className="px-2 py-1.5 text-xs text-muted-foreground">通知中心</div>
-              {notifications.map((item) => (
-                <DropdownMenuItem
-                  key={item.id}
-                  className="flex flex-col items-start gap-0.5 rounded-md px-2 py-2 text-foreground focus:bg-accent focus:text-accent-foreground"
-                  onClick={() => {
-                    setNotifications((prev) => prev.map((n) => (n.id === item.id ? { ...n, read: true } : n)))
-                  }}
-                >
-                  <div className="flex w-full items-center justify-between">
-                    <span className="text-sm">{item.title}</span>
-                    {!item.read ? <span className="h-2 w-2 rounded-full bg-[#ef4444]" /> : null}
-                  </div>
-                  <span className="text-xs text-muted-foreground">{item.detail}</span>
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator className="bg-border" />
-              <DropdownMenuItem
-                className="text-center text-xs text-muted-foreground focus:bg-accent"
-                onClick={() => {
-                  setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
-                }}
-              >
-                全部标为已读
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <NotificationMenu />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

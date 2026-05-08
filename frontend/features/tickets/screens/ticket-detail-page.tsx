@@ -14,9 +14,21 @@ import {
   PenTool,
   RefreshCw,
   Send,
+  Sparkles,
   Wrench,
 } from "lucide-react";
 import { Header } from "@/shared/components/brand/app-header";
+import { useMaintenanceAuth } from "@/features/auth/maintenance-auth";
+import {
+  canAcceptFillReview,
+  canAssignWorkOrder,
+  canCompleteMaintenance,
+  canConfirmWorkOrderStep,
+  canCreateKnowledgeDraft,
+  canOperateWorkOrder,
+  canSubmitFilling,
+  canEnterMaintenance as canEnterMaintenanceWithRole,
+} from "@/features/auth/permissions";
 import { getMaintenanceToken } from "@/features/auth/lib/token-store";
 import { createMaintenanceCase } from "@/features/cases/api";
 import { fetchTaskDetail, type MaintenanceTaskDetail } from "@/features/tasks/api";
@@ -29,15 +41,20 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import {
+  acceptWorkOrderFillReview,
   completeWorkOrderMaintenance,
   confirmWorkOrderStep,
   enterWorkOrderMaintenance,
+  fetchWorkOrderAssignmentCandidates,
   fetchWorkOrderDetail,
   fetchWorkOrderEvents,
   fetchWorkOrderMessages,
   isMaintenanceAuthExpiredError,
   postWorkOrderMessage,
   submitWorkOrderFilling,
+  updateWorkOrderAssignment,
+  type WorkOrderAssignee,
+  type WorkOrderAssignmentUpdatePayload,
   type WorkOrderDetailPayload,
   type WorkOrderEventItem,
   type WorkOrderMessageItem,
@@ -80,6 +97,11 @@ const workOrderStatusMeta: Record<
   SX: { label: "已终止", className: "border-red-500/30 bg-red-500/15 text-red-500" },
 };
 
+const overdueStatusMeta = {
+  label: "已超时",
+  className: "border-red-500/30 bg-red-500/15 text-red-500",
+};
+
 const eventLabelMap: Record<string, string> = {
   work_order_created: "工单创建",
   retrieval_started: "知识检索开始",
@@ -90,8 +112,10 @@ const eventLabelMap: Record<string, string> = {
   escalation_resolved: "升级会诊完成",
   approval_approved: "审批通过",
   approval_rejected: "审批驳回",
+  approval_requested: "提交审批",
   expert_accept_fill: "专家验收通过",
   fill_submitted: "已提交回填",
+  assignment_updated: "分配已更新",
 };
 
 type TimelineEntry =
@@ -126,8 +150,34 @@ function getWorkOrderStatusMeta(status?: string | null) {
   };
 }
 
+function getDisplayedWorkOrderStatusMeta(detail: WorkOrderDetailPayload | null) {
+  if (detail?.is_overdue) {
+    return overdueStatusMeta;
+  }
+  return getWorkOrderStatusMeta(detail?.status);
+}
+
 function formatWorkOrderCode(id: number) {
   return `WO-${String(id).padStart(6, "0")}`;
+}
+
+function formatSlaRemaining(deadline: string | null | undefined) {
+  const raw = String(deadline || "").trim();
+  if (!raw) return "--";
+  const target = new Date(raw);
+  if (Number.isNaN(target.getTime())) return "--";
+  const diffMs = target.getTime() - Date.now();
+  const overdue = diffMs < 0;
+  const absMinutes = Math.floor(Math.abs(diffMs) / (1000 * 60));
+  const days = Math.floor(absMinutes / (60 * 24));
+  const hours = Math.floor((absMinutes % (60 * 24)) / 60);
+  const minutes = absMinutes % 60;
+  const parts = [
+    days > 0 ? `${days}天` : "",
+    hours > 0 ? `${hours}小时` : "",
+    minutes > 0 || (days === 0 && hours === 0) ? `${minutes}分钟` : "",
+  ].filter(Boolean);
+  return `${overdue ? "已超时" : "剩余"} ${parts.join("")}`;
 }
 
 function parseReferenceTitles(text: string) {
@@ -164,9 +214,24 @@ function formatTimelineActor(entry: { actor_user_id?: number | null; role?: stri
   return entry.actor_user_id ? `操作人 #${entry.actor_user_id}` : "系统";
 }
 
+function formatAssigneeName(user: WorkOrderAssignee | null | undefined) {
+  return user?.display_name || "未分配";
+}
+
+function buildAssignmentSummary(assignees: Record<string, WorkOrderAssignee | null | undefined>, currentOwner?: WorkOrderAssignee | null) {
+  const parts = [
+    `检修员：${formatAssigneeName(assignees.worker)}`,
+    `专家：${formatAssigneeName(assignees.expert)}`,
+    `安全员：${formatAssigneeName(assignees.safety)}`,
+    `当前负责人：${formatAssigneeName(currentOwner)}`,
+  ];
+  return parts.join("；");
+}
+
 function formatEventContent(event: WorkOrderEventItem) {
   const fromLabel = getWorkOrderStatusMeta(event.from_status).label;
   const toLabel = getWorkOrderStatusMeta(event.to_status).label;
+  const payload = event.payload && typeof event.payload === "object" ? event.payload : null;
 
   switch (event.event_type) {
     case "work_order_created":
@@ -185,6 +250,8 @@ function formatEventContent(event: WorkOrderEventItem) {
       return "审批已通过，可继续执行后续流程。";
     case "approval_rejected":
       return "审批未通过，请根据意见补充信息后再提交。";
+    case "approval_requested":
+      return "当前工步已提交审批，等待审批员确认后才能继续执行。";
     case "approval_need_info":
       return "当前流程需要补充更多信息后才能继续。";
     case "expert_accept_fill":
@@ -193,6 +260,21 @@ function formatEventContent(event: WorkOrderEventItem) {
       return "已发起升级会诊，等待专家进一步介入。";
     case "escalation_resolved":
       return "升级会诊已处理完成，可回到当前工单继续推进。";
+    case "assignment_updated": {
+      const before = payload?.before as
+        | { assignees?: Record<string, WorkOrderAssignee | null>; current_owner?: WorkOrderAssignee | null }
+        | undefined;
+      const after = payload?.after as
+        | { assignees?: Record<string, WorkOrderAssignee | null>; current_owner?: WorkOrderAssignee | null }
+        | undefined;
+      const beforeText = before
+        ? buildAssignmentSummary(before.assignees || {}, before.current_owner || null)
+        : "调整前信息缺失";
+      const afterText = after
+        ? buildAssignmentSummary(after.assignees || {}, after.current_owner || null)
+        : "调整后信息缺失";
+      return `分配已更新。调整前：${beforeText}。调整后：${afterText}。`;
+    }
     default:
       if (event.from_status || event.to_status) {
         return `工单状态已从“${fromLabel}”更新为“${toLabel}”。`;
@@ -568,6 +650,7 @@ function buildCaseDraft(
 export default function TicketDetailPage() {
   const params = useParams<{ ticketId: string }>();
   const router = useRouter();
+  const { user } = useMaintenanceAuth();
   const numericId = useMemo(() => {
     const raw = params?.ticketId || "";
     const matched = String(raw).match(/\d+/);
@@ -579,10 +662,13 @@ export default function TicketDetailPage() {
   const [messages, setMessages] = useState<WorkOrderMessageItem[]>([]);
   const [sourceTaskDetail, setSourceTaskDetail] = useState<MaintenanceTaskDetail | null>(null);
   const [comment, setComment] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [timelineLoading, setTimelineLoading] = useState(true);
+  const [sourceTaskLoading, setSourceTaskLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionPending, setActionPending] = useState<"enter" | "complete" | null>(null);
+  const [acceptingReview, setAcceptingReview] = useState(false);
   const [confirmingStepNo, setConfirmingStepNo] = useState<number | null>(null);
   const [creatingCase, setCreatingCase] = useState(false);
   const [createCaseOpen, setCreateCaseOpen] = useState(false);
@@ -596,42 +682,76 @@ export default function TicketDetailPage() {
   const [fillUnresolvedReason, setFillUnresolvedReason] = useState<"EQUIPMENT_LIMIT" | "INFO_INSUFFICIENT" | "EXPERT_REQUIRED" | "USER_ABORT" | "OTHER">("INFO_INSUFFICIENT");
   const [fillDetailNotes, setFillDetailNotes] = useState("");
   const [fillFiles, setFillFiles] = useState<File[]>([]);
+  const [assignmentDialogOpen, setAssignmentDialogOpen] = useState(false);
+  const [assignmentSubmitting, setAssignmentSubmitting] = useState(false);
+  const [assignmentCandidates, setAssignmentCandidates] = useState<WorkOrderAssignee[]>([]);
+  const [assignmentDraft, setAssignmentDraft] = useState<Required<WorkOrderAssignmentUpdatePayload>>({
+    assigned_worker_user_id: null,
+    assigned_expert_user_id: null,
+    assigned_safety_user_id: null,
+    current_owner_user_id: null,
+  });
+
+  const loadTimeline = async (token: string, workOrderId: number) => {
+    setTimelineLoading(true);
+    try {
+      const [eventsPayload, messagesPayload] = await Promise.all([
+        fetchWorkOrderEvents(token, workOrderId),
+        fetchWorkOrderMessages(token, workOrderId),
+      ]);
+      setEvents(eventsPayload.items);
+      setMessages(messagesPayload.items);
+    } catch {
+      setEvents([]);
+      setMessages([]);
+    } finally {
+      setTimelineLoading(false);
+    }
+  };
+
+  const loadSourceTask = async (taskId?: number | null) => {
+    if (!taskId) {
+      setSourceTaskDetail(null);
+      setSourceTaskLoading(false);
+      return;
+    }
+    setSourceTaskLoading(true);
+    try {
+      const taskDetailPayload = await fetchTaskDetail(taskId);
+      setSourceTaskDetail(taskDetailPayload);
+    } catch {
+      setSourceTaskDetail(null);
+    } finally {
+      setSourceTaskLoading(false);
+    }
+  };
 
   const loadDetail = async (options?: { silent?: boolean }) => {
     const token = getMaintenanceToken();
     if (!token) {
       setError("当前未检测到检修域登录状态，无法查看工单详情。");
-      setLoading(false);
+      setDetailLoading(false);
+      setTimelineLoading(false);
+      setSourceTaskLoading(false);
       return;
     }
     if (!Number.isFinite(numericId)) {
       setError("工单编号无效。");
-      setLoading(false);
+      setDetailLoading(false);
+      setTimelineLoading(false);
+      setSourceTaskLoading(false);
       return;
     }
     if (!options?.silent) {
-      setLoading(true);
+      setDetailLoading(true);
     }
     setError(null);
     try {
-      const [detailPayload, eventsPayload, messagesPayload] = await Promise.all([
-        fetchWorkOrderDetail(token, numericId),
-        fetchWorkOrderEvents(token, numericId),
-        fetchWorkOrderMessages(token, numericId),
-      ]);
+      const timelinePromise = loadTimeline(token, numericId);
+      const detailPayload = await fetchWorkOrderDetail(token, numericId);
       setDetail(detailPayload);
-      setEvents(eventsPayload.items);
-      setMessages(messagesPayload.items);
-      if (detailPayload.source_task?.task_id) {
-        try {
-          const taskDetailPayload = await fetchTaskDetail(detailPayload.source_task.task_id);
-          setSourceTaskDetail(taskDetailPayload);
-        } catch {
-          setSourceTaskDetail(null);
-        }
-      } else {
-        setSourceTaskDetail(null);
-      }
+      void timelinePromise;
+      void loadSourceTask(detailPayload.source_task?.task_id);
     } catch (e) {
       setError(
         isMaintenanceAuthExpiredError(e)
@@ -640,8 +760,10 @@ export default function TicketDetailPage() {
             ? e.message
             : "加载工单详情失败",
       );
+      setTimelineLoading(false);
+      setSourceTaskLoading(false);
     } finally {
-      setLoading(false);
+      setDetailLoading(false);
     }
   };
 
@@ -652,7 +774,7 @@ export default function TicketDetailPage() {
   const title = useMemo(() => buildTitle(detail), [detail]);
   const summary = useMemo(() => buildSummary(detail, messages, events), [detail, messages, events]);
   const timeline = useMemo(() => buildTimeline(events, messages), [events, messages]);
-  const statusMeta = getWorkOrderStatusMeta(detail?.status);
+  const statusMeta = getDisplayedWorkOrderStatusMeta(detail);
   const levelMeta = getMaintenanceLevelMeta(detail?.maintenance_level);
   const sourceTask = detail?.source_task;
   const latestAssistantSuggestion = useMemo(
@@ -672,6 +794,27 @@ export default function TicketDetailPage() {
     [actionSteps, detail],
   );
   const hasFlowTemplateSteps = executionSteps.some((step) => step.confirmable);
+  const canEditAssignment = canAssignWorkOrder(user);
+  const workerCandidates = useMemo(
+    () => assignmentCandidates.filter((candidate) => candidate.roles.includes("worker")),
+    [assignmentCandidates],
+  );
+  const expertCandidates = useMemo(
+    () => assignmentCandidates.filter((candidate) => candidate.roles.includes("expert")),
+    [assignmentCandidates],
+  );
+  const safetyCandidates = useMemo(
+    () => assignmentCandidates.filter((candidate) => candidate.roles.includes("safety")),
+    [assignmentCandidates],
+  );
+  const currentOwnerOptions = useMemo(() => {
+    const selectedIds = [
+      assignmentDraft.assigned_worker_user_id,
+      assignmentDraft.assigned_expert_user_id,
+      assignmentDraft.assigned_safety_user_id,
+    ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    return assignmentCandidates.filter((candidate) => selectedIds.includes(candidate.id));
+  }, [assignmentCandidates, assignmentDraft]);
 
   useEffect(() => {
     if (!createCaseOpen || !detail) return;
@@ -693,6 +836,52 @@ export default function TicketDetailPage() {
     setFillDetailNotes("");
     setFillFiles([]);
   }, [detail?.status, fillDialogOpen]);
+
+  useEffect(() => {
+    if (!assignmentDialogOpen || !detail) return;
+    setAssignmentDraft({
+      assigned_worker_user_id: detail.assignees?.worker?.id ?? null,
+      assigned_expert_user_id: detail.assignees?.expert?.id ?? null,
+      assigned_safety_user_id: detail.assignees?.safety?.id ?? null,
+      current_owner_user_id: detail.current_owner?.id ?? null,
+    });
+  }, [assignmentDialogOpen, detail]);
+
+  useEffect(() => {
+    if (!assignmentDialogOpen) return;
+    const token = getMaintenanceToken();
+    if (!token) return;
+    void (async () => {
+      try {
+        const payload = await fetchWorkOrderAssignmentCandidates(token);
+        setAssignmentCandidates(payload.items);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "加载分配候选人失败");
+      }
+    })();
+  }, [assignmentDialogOpen]);
+
+  useEffect(() => {
+    const allowed = new Set(
+      [
+        assignmentDraft.assigned_worker_user_id,
+        assignmentDraft.assigned_expert_user_id,
+        assignmentDraft.assigned_safety_user_id,
+      ].filter((value): value is number => typeof value === "number" && Number.isFinite(value)),
+    );
+    if (assignmentDraft.current_owner_user_id == null || allowed.has(assignmentDraft.current_owner_user_id)) {
+      return;
+    }
+    setAssignmentDraft((current) => ({
+      ...current,
+      current_owner_user_id: null,
+    }));
+  }, [
+    assignmentDraft.assigned_expert_user_id,
+    assignmentDraft.assigned_safety_user_id,
+    assignmentDraft.assigned_worker_user_id,
+    assignmentDraft.current_owner_user_id,
+  ]);
 
   const handleSubmitComment = () => {
     const token = getMaintenanceToken();
@@ -750,13 +939,34 @@ export default function TicketDetailPage() {
     setConfirmingStepNo(stepNo);
     void (async () => {
       try {
-        await confirmWorkOrderStep(token, numericId, { step_no: stepNo, mark_done: true });
-        toast.success(`已确认工步 ${stepNo}`);
+        const result = await confirmWorkOrderStep(token, numericId, { step_no: stepNo, mark_done: true });
+        if (result.business_code === "APPROVAL_REQUIRED") {
+          toast.success(`工步 ${stepNo} 已提交审批，请前往审批任务处理`);
+        } else {
+          toast.success(`已确认工步 ${stepNo}`);
+        }
         await loadDetail({ silent: true });
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "工步确认失败");
       } finally {
         setConfirmingStepNo(null);
+      }
+    })();
+  };
+
+  const handleAcceptFillReview = () => {
+    const token = getMaintenanceToken();
+    if (!token || !Number.isFinite(numericId)) return;
+    setAcceptingReview(true);
+    void (async () => {
+      try {
+        await acceptWorkOrderFillReview(token, numericId);
+        toast.success("已完成工单验收");
+        await loadDetail({ silent: true });
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "工单验收失败");
+      } finally {
+        setAcceptingReview(false);
       }
     })();
   };
@@ -832,7 +1042,34 @@ export default function TicketDetailPage() {
     })();
   };
 
-  if (loading) {
+  const handleSubmitAssignment = () => {
+    const token = getMaintenanceToken();
+    if (!token || !Number.isFinite(numericId)) return;
+    const assignedIds = [
+      assignmentDraft.assigned_worker_user_id,
+      assignmentDraft.assigned_expert_user_id,
+      assignmentDraft.assigned_safety_user_id,
+    ].filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+    if (assignmentDraft.current_owner_user_id != null && !assignedIds.includes(assignmentDraft.current_owner_user_id)) {
+      toast.error("当前负责人必须从已分配的检修员、专家、安全员中选择");
+      return;
+    }
+    setAssignmentSubmitting(true);
+    void (async () => {
+      try {
+        await updateWorkOrderAssignment(token, numericId, assignmentDraft);
+        setAssignmentDialogOpen(false);
+        toast.success("工单分配已更新");
+        await loadDetail({ silent: true });
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "更新工单分配失败");
+      } finally {
+        setAssignmentSubmitting(false);
+      }
+    })();
+  };
+
+  if (detailLoading) {
     return (
       <div className="min-h-screen bg-background">
         <Header />
@@ -874,10 +1111,13 @@ export default function TicketDetailPage() {
     );
   }
 
-  const canEnterMaintenance = detail.status === "S1" || detail.status === "S3" || detail.status === "S5";
-  const canCompleteMaintenance = detail.status === "S7";
-  const canFillResult = detail.status === "S8";
-  const hasAvailableAction = canEnterMaintenance || canCompleteMaintenance || canFillResult;
+  const canEnterMaintenance = canEnterMaintenanceWithRole(user, detail.status);
+  const canCompleteCurrentMaintenance = canCompleteMaintenance(user, detail.status);
+  const canFillResult = canSubmitFilling(user, detail.status);
+  const canAcceptReview = canAcceptFillReview(user, detail.status);
+  const canCreateCaseDraft = canCreateKnowledgeDraft(user, detail.status);
+  const canAdvanceWorkOrder = canOperateWorkOrder(user);
+  const hasAvailableAction = canEnterMaintenance || canCompleteCurrentMaintenance || canFillResult || canAcceptReview;
 
   return (
     <div className="min-h-screen bg-background">
@@ -894,9 +1134,6 @@ export default function TicketDetailPage() {
               <span className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium ${levelMeta.className}`}>
                 {levelMeta.label}
               </span>
-              <span className={`inline-flex items-center rounded-md border px-2 py-1 text-xs font-medium ${statusMeta.className}`}>
-                {statusMeta.label}
-              </span>
             </div>
             <button type="button" className="app-btn-secondary" onClick={() => void loadDetail()}>
               <RefreshCw className="h-4 w-4" />
@@ -905,46 +1142,236 @@ export default function TicketDetailPage() {
           </div>
         </section>
 
-        <section className="app-card p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <section className="app-card">
+          <div className="flex flex-col gap-4 border-b border-border p-6 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0 flex-1">
               <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
-              <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{summary}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="text-sm text-muted-foreground">
+                  {detail.device?.device_type || "未知设备"}
+                  {detail.device?.model ? ` · ${detail.device.model}` : ""}
+                  {detail.device?.asset_code ? ` · ${detail.device.asset_code}` : ""}
+                </span>
+              </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:w-[420px]">
-              <div className="app-subpanel p-4">
-                <div className="mb-1 text-xs text-muted-foreground">设备类型</div>
-                <div className="text-sm font-medium text-foreground">{detail.device?.device_type || "--"}</div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canAcceptReview ? (
+                <button
+                  type="button"
+                  className="app-btn-primary"
+                  onClick={handleAcceptFillReview}
+                  disabled={acceptingReview}
+                >
+                  {acceptingReview ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  通过验收
+                </button>
+              ) : null}
+              {canFillResult ? (
+                <button
+                  type="button"
+                  className="app-btn-primary"
+                  onClick={() => setFillDialogOpen(true)}
+                >
+                  <PenTool className="h-4 w-4" />
+                  提交回填结果
+                </button>
+              ) : null}
+              {canEnterMaintenance ? (
+                <button
+                  type="button"
+                  className="app-btn-primary"
+                  onClick={() => handleAction("enter")}
+                  disabled={actionPending != null}
+                >
+                  {actionPending === "enter" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}
+                  进入检修
+                </button>
+              ) : null}
+              {canCompleteCurrentMaintenance ? (
+                <button
+                  type="button"
+                  className="app-btn-primary"
+                  onClick={() => handleAction("complete")}
+                  disabled={actionPending != null}
+                >
+                  {actionPending === "complete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  完成检修
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className={`flex items-start gap-4 p-6 ${statusMeta.className.replace(/border-\S+/, "border-l-4")}`}>
+            <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-current/10">
+              <Activity className="h-5 w-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-base font-semibold text-foreground">当前状态：{statusMeta.label}</span>
+                {detail.is_overdue ? (
+                  <span className="inline-flex items-center rounded-md border border-red-500/30 bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400">
+                    已超时
+                  </span>
+                ) : null}
               </div>
-              <div className="app-subpanel p-4">
-                <div className="mb-1 text-xs text-muted-foreground">设备型号</div>
-                <div className="text-sm font-medium text-foreground">{detail.device?.model || "--"}</div>
-              </div>
-              <div className="app-subpanel p-4">
-                <div className="mb-1 text-xs text-muted-foreground">设备编号</div>
-                <div className="text-sm font-medium text-foreground">{detail.device?.asset_code || "--"}</div>
-              </div>
-              <div className="app-subpanel p-4">
-                <div className="mb-1 text-xs text-muted-foreground">最后更新</div>
-                <div className="text-sm font-medium text-foreground">{formatDateTimeLocal(detail.updated_at)}</div>
-              </div>
+              <p className="mt-2 text-sm leading-6 text-foreground/85">{summary}</p>
+              {!hasAvailableAction && !canAcceptReview && !canFillResult ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {!canAdvanceWorkOrder && detail.status !== "S9"
+                    ? "当前账号只有只读权限，不能继续推进这张工单。"
+                    : detail.status === "S8"
+                    ? "当前检修已完成，请先填写处理结果和现场凭证，再继续后续流程。"
+                    : detail.status === "S9"
+                      ? "当前工单处于待验收阶段，只有专家或管理员可以确认验收。"
+                      : detail.status === "S10"
+                        ? "工单已完成，所有流程已结束。"
+                        : `当前工单状态为"${statusMeta.label}"，暂时没有可继续推进的工单操作。`}
+                </p>
+              ) : null}
+              {detail.status === "S10" && canCreateCaseDraft ? (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="app-btn-secondary"
+                    onClick={() => setCreateCaseOpen(true)}
+                    disabled={creatingCase}
+                  >
+                    <PenTool className="h-4 w-4" />
+                    转为知识案例
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.8fr)_360px]">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_340px]">
           <section className="space-y-6">
             <div className="app-card">
               <div className="flex items-center justify-between border-b border-border px-5 py-4">
                 <div className="inline-flex items-center gap-2 text-base font-medium text-foreground">
-                  <Activity className="h-4 w-4 text-muted-foreground" />
-                  执行记录
+                  <Wrench className="h-4 w-4 text-muted-foreground" />
+                  检修步骤执行
                 </div>
-                <span className="text-sm text-muted-foreground">{timeline.length} 条</span>
+                <span className="text-sm text-muted-foreground">
+                  {detail.flow_template?.name || "建议步骤"}
+                </span>
               </div>
               <div className="p-5">
-                {timeline.length > 0 ? (
-                  timeline.map((entry, index) => <TimelineCard key={entry.id} entry={entry} isLast={index === timeline.length - 1} />)
+                {executionSteps.length > 0 ? (
+                  <div className="space-y-3">
+                    {executionSteps.map((step) => (
+                      <div
+                        key={step.key}
+                        className={`rounded-xl border p-5 transition-all ${
+                          step.current
+                            ? "border-[#5e6ad2]/40 bg-[#5e6ad2]/5 shadow-sm"
+                            : step.completed
+                              ? "border-emerald-500/30 bg-emerald-500/5"
+                              : "border-border bg-background"
+                        }`}
+                      >
+                        <div className="flex items-start gap-4">
+                          <div
+                            className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-base font-semibold ${
+                              step.completed
+                                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                : step.current
+                                  ? "bg-[#5e6ad2]/15 text-[#5e6ad2]"
+                                  : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {step.completed ? <CheckCircle2 className="h-5 w-5" /> : step.stepNo}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-base font-semibold text-foreground">{step.title}</h3>
+                              {step.current && !step.completed ? (
+                                <span className="inline-flex items-center rounded-md border border-[#5e6ad2]/30 bg-[#5e6ad2]/10 px-2 py-0.5 text-xs font-medium text-[#5e6ad2]">
+                                  当前工步
+                                </span>
+                              ) : null}
+                              {step.completed ? (
+                                <span className="inline-flex items-center rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                  已完成
+                                </span>
+                              ) : null}
+                              {step.requiresApproval ? (
+                                <span className="inline-flex items-center rounded-md border border-orange-500/30 bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-600 dark:text-orange-400">
+                                  需审批
+                                </span>
+                              ) : null}
+                            </div>
+                            {step.detail ? (
+                              <p className="mt-2 text-sm leading-6 text-muted-foreground">{step.detail}</p>
+                            ) : null}
+                            <div className="mt-3">
+                              {canConfirmWorkOrderStep(user, detail.status) && step.confirmable && !step.completed ? (
+                                <button
+                                  type="button"
+                                  className="app-btn-secondary"
+                                  onClick={() => handleConfirmStep(step.stepNo)}
+                                  disabled={confirmingStepNo != null || !step.current}
+                                >
+                                  {confirmingStepNo === step.stepNo ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <CheckCircle2 className="h-4 w-4" />
+                                  )}
+                                  确认完成
+                                </button>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  {step.completed
+                                    ? "✓ 该工步已确认完成"
+                                    : canConfirmWorkOrderStep(user, detail.status)
+                                      ? step.confirmable
+                                        ? "需按顺序执行后确认"
+                                        : "建议步骤，未绑定流程模板"
+                                      : canAdvanceWorkOrder
+                                        ? "进入检修后可逐步确认"
+                                        : "当前账号没有工步确认权限"}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
+                    当前尚未生成可执行步骤，请等待系统检索完成。
+                  </div>
+                )}
+                {canConfirmWorkOrderStep(user, detail.status) && !hasFlowTemplateSteps && executionSteps.length > 0 ? (
+                  <div className="mt-4 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-xs leading-6 text-muted-foreground">
+                    💡 当前显示的是检索生成的建议步骤，还没有绑定真实流程模板，所以可以参考执行，但不能逐步确认。
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="app-card">
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <div className="inline-flex items-center gap-2 text-base font-medium text-foreground">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  执行记录时间线
+                </div>
+                <span className="text-sm text-muted-foreground">{timelineLoading ? "加载中..." : `${timeline.length} 条`}</span>
+              </div>
+              <div className="p-5">
+                {timelineLoading ? (
+                  <div className="space-y-3">
+                    <div className="app-skeleton h-20 w-full rounded-xl" />
+                    <div className="app-skeleton h-20 w-full rounded-xl" />
+                  </div>
+                ) : timeline.length > 0 ? (
+                  <div className="space-y-0">
+                    {timeline.map((entry, index) => (
+                      <TimelineCard key={entry.id} entry={entry} isLast={index === timeline.length - 1} />
+                    ))}
+                  </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center text-sm text-muted-foreground">
                     当前工单暂无可展示的执行记录。
@@ -959,55 +1386,53 @@ export default function TicketDetailPage() {
                   <MessageSquare className="h-4 w-4 text-muted-foreground" />
                   追加记录
                 </div>
-                <span className="text-sm text-muted-foreground">将写入真实工单消息</span>
+                <span className="text-sm text-muted-foreground">补充现场备注</span>
               </div>
               <div className="p-5">
-                <textarea
-                  value={comment}
-                  onChange={(e) => setComment(e.target.value)}
-                  placeholder="输入检修进展、交接说明或现场备注..."
-                  rows={4}
-                  className="app-textarea min-h-[120px]"
-                />
-                <div className="mt-3 flex justify-end">
-                  <button type="button" className="app-btn-primary" onClick={handleSubmitComment} disabled={submitting || !comment.trim()}>
-                    {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    提交记录
-                  </button>
-                </div>
+                {canAdvanceWorkOrder ? (
+                  <>
+                    <textarea
+                      value={comment}
+                      onChange={(e) => setComment(e.target.value)}
+                      placeholder="输入检修进展、交接说明或现场备注..."
+                      rows={4}
+                      className="app-textarea min-h-[120px]"
+                    />
+                    <div className="mt-3 flex justify-end">
+                      <button
+                        type="button"
+                        className="app-btn-secondary"
+                        onClick={handleSubmitComment}
+                        disabled={submitting || !comment.trim()}
+                      >
+                        {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                        提交记录
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-border bg-muted/20 px-4 py-6 text-sm text-muted-foreground">
+                    当前账号没有追加检修记录的权限。
+                  </div>
+                )}
               </div>
             </div>
           </section>
 
           <aside className="space-y-6">
-            {sourceTask ? (
-              <div className="app-card p-5">
-                <div className="flex items-center gap-2 text-base font-semibold text-foreground">
-                  <Sparkles className="h-4 w-4 text-muted-foreground" />
-                  来源智能诊断
-                </div>
-                <div className="mt-4 space-y-4 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground">诊断任务编号</span>
-                    <span className="font-mono text-foreground">#{sourceTask.task_id}</span>
-                  </div>
-                  <SourceInsightCard
-                    label="结论"
-                    accent="bg-[#5e6ad2]"
-                    content={diagnosisConclusion}
-                  />
-                  <Link
-                    href={`/tasks/${sourceTask.task_id}?from=${encodeURIComponent(`/tickets/${detail.id}`)}`}
-                    className="app-btn-secondary w-full justify-center"
-                  >
-                    跳转到诊断详情页
-                  </Link>
-                </div>
-              </div>
-            ) : null}
-
             <div className="app-card p-5">
-              <h2 className="text-base font-semibold text-foreground">工单信息</h2>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-base font-semibold text-foreground">工单信息</h2>
+                {canEditAssignment ? (
+                  <button
+                    type="button"
+                    className="app-btn-secondary h-8 px-3 text-xs"
+                    onClick={() => setAssignmentDialogOpen(true)}
+                  >
+                    编辑分配
+                  </button>
+                ) : null}
+              </div>
               <div className="mt-4 space-y-3 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">工单编号</span>
@@ -1021,185 +1446,236 @@ export default function TicketDetailPage() {
                   <span className="text-muted-foreground">最后更新</span>
                   <span className="text-foreground">{formatDateTimeLocal(detail.updated_at)}</span>
                 </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">SLA 时限</span>
+                  <span className="text-foreground">{detail.sla_hours ? `${detail.sla_hours} 小时` : "--"}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">SLA 截止</span>
+                  <span className="text-foreground">{formatDateTimeLocal(detail.sla_deadline || "")}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">超时状态</span>
+                  <span className={detail.is_overdue ? "text-red-500" : "text-emerald-600 dark:text-emerald-400"}>
+                    {detail.is_overdue ? "已超时" : "未超时"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">检修员</span>
+                  <span className="text-foreground">{formatAssigneeName(detail.assignees?.worker)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">专家</span>
+                  <span className="text-foreground">{formatAssigneeName(detail.assignees?.expert)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">安全员</span>
+                  <span className="text-foreground">{formatAssigneeName(detail.assignees?.safety)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">当前负责人</span>
+                  <span className="text-foreground">{formatAssigneeName(detail.current_owner)}</span>
+                </div>
                 {detail.flow_template?.name ? (
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground">流程模板</span>
                     <span className="text-foreground">{detail.flow_template.name}</span>
                   </div>
                 ) : null}
+                {detail.device?.device_type ? (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">设备类型</span>
+                    <span className="text-foreground">{detail.device.device_type}</span>
+                  </div>
+                ) : null}
+                {detail.device?.model ? (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">设备型号</span>
+                    <span className="text-foreground">{detail.device.model}</span>
+                  </div>
+                ) : null}
+                {detail.device?.asset_code ? (
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">设备编号</span>
+                    <span className="text-foreground">{detail.device.asset_code}</span>
+                  </div>
+                ) : null}
               </div>
             </div>
 
-            <div className="app-card p-5">
-              <h2 className="text-base font-semibold text-foreground">按步骤执行 / 确认</h2>
-              <div className="mt-4 space-y-4">
-                <div>
-                  <div className="mb-2 text-xs text-muted-foreground">
-                    {detail.flow_template?.name ? `流程模板：${detail.flow_template.name}` : "建议优先执行的步骤"}
+            {sourceTask ? (
+              <div className="app-card p-5">
+                <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+                  <Sparkles className="h-4 w-4 text-muted-foreground" />
+                  来源智能诊断
+                </div>
+                <div className="mt-4 space-y-4 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">诊断编号</span>
+                    <span className="font-mono text-foreground">#{sourceTask.task_id}</span>
                   </div>
-                  {executionSteps.length > 0 ? (
-                    <div className="space-y-2">
-                      {executionSteps.map((step) => (
-                        <div key={step.key} className="rounded-lg border border-border bg-muted/20 p-4">
-                          <div className="flex items-start gap-3">
-                            <span className={`mt-0.5 inline-flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold ${
-                              step.completed
-                                ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
-                                : step.current
-                                  ? "bg-[#5e6ad2]/12 text-[#5e6ad2]"
-                                  : "bg-muted text-muted-foreground"
-                            }`}>
-                              {step.stepNo}
-                            </span>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="text-sm font-medium text-foreground">{step.title}</div>
-                                {step.current ? <span className="app-chip-muted">当前工步</span> : null}
-                                {step.completed ? <span className="app-chip-muted">已确认</span> : null}
-                                {step.requiresApproval ? <span className="app-chip-muted">需审批</span> : null}
-                              </div>
-                              {step.detail ? (
-                                <p className="mt-1 text-sm leading-6 text-muted-foreground">{step.detail}</p>
-                              ) : null}
-                            </div>
-                          </div>
-                          <div className="mt-3 flex justify-end">
-                            {detail.status === "S7" && step.confirmable && !step.completed ? (
-                              <button
-                                type="button"
-                                className="app-btn-secondary"
-                                onClick={() => handleConfirmStep(step.stepNo)}
-                                disabled={confirmingStepNo != null || !step.current}
-                              >
-                                {confirmingStepNo === step.stepNo ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                                确认本步
-                              </button>
-                            ) : (
-                              <div className="text-xs text-muted-foreground">
-                                {step.completed
-                                  ? "该工步已确认完成。"
-                                  : detail.status === "S7"
-                                    ? step.confirmable
-                                      ? "需按顺序执行后确认。"
-                                      : "当前为检索生成的建议步骤，未绑定真实流程模板，暂不支持工步确认。"
-                                    : "进入检修后可逐步确认。"}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                  {sourceTaskLoading ? (
+                    <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-4">
+                      <div className="app-skeleton h-4 w-24" />
+                      <div className="app-skeleton h-4 w-full" />
+                      <div className="app-skeleton h-4 w-4/5" />
                     </div>
                   ) : (
-                    <div className="rounded-lg border border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
-                      当前尚未生成可执行步骤。
-                    </div>
+                    <SourceInsightCard label="诊断结论" accent="bg-[#5e6ad2]" content={diagnosisConclusion} />
                   )}
-                  {detail.status === "S7" && !hasFlowTemplateSteps ? (
-                    <div className="mt-3 rounded-lg border border-dashed border-border bg-muted/20 px-3 py-3 text-xs leading-6 text-muted-foreground">
-                      当前显示的是检索生成的建议步骤，还没有绑定真实流程模板，所以可以参考执行，但不能逐步确认。
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="space-y-2">
-                  <div className="text-xs text-muted-foreground">当前可执行的工单操作</div>
-                  {canEnterMaintenance ? (
-                    <button
-                      type="button"
-                      className="app-btn-secondary w-full justify-center"
-                      onClick={() => handleAction("enter")}
-                      disabled={actionPending != null}
-                    >
-                      {actionPending === "enter" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />}
-                      进入检修
-                    </button>
-                  ) : null}
-                  {canCompleteMaintenance ? (
-                    <button
-                      type="button"
-                      className="app-btn-secondary w-full justify-center"
-                      onClick={() => handleAction("complete")}
-                      disabled={actionPending != null}
-                    >
-                      {actionPending === "complete" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                      完成检修
-                    </button>
-                  ) : null}
-                  {canFillResult ? (
-                    <button
-                      type="button"
-                      className="app-btn-secondary w-full justify-center"
-                      onClick={() => setFillDialogOpen(true)}
-                    >
-                      <PenTool className="h-4 w-4" />
-                      填写回填结果
-                    </button>
-                  ) : null}
-                  {!hasAvailableAction ? (
-                    <div className="rounded-lg border border-border bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
-                      {detail.status === "S8"
-                        ? "当前检修已完成，请先填写处理结果和现场凭证，再继续后续流程。"
-                        : `当前工单状态为“${statusMeta.label}”，暂时没有可继续推进的工单操作。`}
-                    </div>
-                  ) : null}
+                  <Link
+                    href={`/tasks/${sourceTask.task_id}?from=${encodeURIComponent(`/tickets/${detail.id}`)}`}
+                    className="app-btn-secondary w-full justify-center"
+                  >
+                    查看完整诊断
+                  </Link>
                 </div>
               </div>
-            </div>
-
-            <div className="app-card p-5">
-              <h2 className="text-base font-semibold text-foreground">转为检修案例 / 提交知识沉淀</h2>
-              <div className="mt-4 space-y-4">
-                <div className="rounded-lg border border-border bg-muted/20 p-4 text-sm text-muted-foreground">
-                  将本次工单的来源诊断、执行步骤与现场追加记录沉淀为检修案例，便于后续审核发布和知识复用。
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">案例标题</span>
-                    <span className="text-right text-foreground">{buildCaseDraft(detail, sourceTask, sourceTaskDetail, actionSteps, diagnosisConclusion).title}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">来源工单</span>
-                    <span className="font-mono text-foreground">{formatWorkOrderCode(detail.id)}</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-muted-foreground">关联诊断</span>
-                    <span className="text-foreground">{sourceTask ? `#${sourceTask.task_id}` : "无"}</span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="app-btn-primary w-full justify-center"
-                  onClick={() => setCreateCaseOpen(true)}
-                  disabled={creatingCase}
-                >
-                  <PenTool className="h-4 w-4" />
-                  转为检修案例
-                </button>
-              </div>
-            </div>
+            ) : null}
 
             <div className="app-card p-5">
               <div className="text-base font-semibold text-foreground">记录概览</div>
               <div className="mt-4 space-y-3 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">消息记录</span>
-                  <span className="text-foreground">{messages.length} 条</span>
+                  <span className="text-foreground">{timelineLoading ? "加载中..." : `${messages.length} 条`}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">事件记录</span>
-                  <span className="text-foreground">{events.length} 条</span>
+                  <span className="text-foreground">{timelineLoading ? "加载中..." : `${events.length} 条`}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">执行步骤</span>
+                  <span className="text-foreground">
+                    {executionSteps.filter((s) => s.completed).length} / {executionSteps.length}
+                  </span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">来源</span>
-                  <span className="text-foreground">
-                    {sourceTask ? `AI诊断任务 #${sourceTask.task_id}` : "检修域工单"}
-                  </span>
+                  <span className="text-foreground">{sourceTask ? `AI诊断 #${sourceTask.task_id}` : "检修域工单"}</span>
                 </div>
               </div>
             </div>
           </aside>
         </div>
       </main>
+
+      <Dialog
+        open={assignmentDialogOpen}
+        onOpenChange={(open) => {
+          if (assignmentSubmitting) return;
+          setAssignmentDialogOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-lg border-border bg-popover text-popover-foreground">
+          <DialogHeader>
+            <DialogTitle>编辑工单分配</DialogTitle>
+            <DialogDescription>设置分配组角色槽位，并从已分配成员里指定当前负责人。</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <div className="text-sm font-medium text-foreground">检修员</div>
+              <select
+                value={assignmentDraft.assigned_worker_user_id ?? ""}
+                onChange={(e) =>
+                  setAssignmentDraft((current) => ({
+                    ...current,
+                    assigned_worker_user_id: e.target.value ? Number(e.target.value) : null,
+                  }))
+                }
+                className="app-select h-10 w-full"
+              >
+                <option value="">未分配</option>
+                {workerCandidates.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.display_name} @{candidate.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <div className="text-sm font-medium text-foreground">专家</div>
+              <select
+                value={assignmentDraft.assigned_expert_user_id ?? ""}
+                onChange={(e) =>
+                  setAssignmentDraft((current) => ({
+                    ...current,
+                    assigned_expert_user_id: e.target.value ? Number(e.target.value) : null,
+                  }))
+                }
+                className="app-select h-10 w-full"
+              >
+                <option value="">未分配</option>
+                {expertCandidates.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.display_name} @{candidate.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <div className="text-sm font-medium text-foreground">安全员</div>
+              <select
+                value={assignmentDraft.assigned_safety_user_id ?? ""}
+                onChange={(e) =>
+                  setAssignmentDraft((current) => ({
+                    ...current,
+                    assigned_safety_user_id: e.target.value ? Number(e.target.value) : null,
+                  }))
+                }
+                className="app-select h-10 w-full"
+              >
+                <option value="">未分配</option>
+                {safetyCandidates.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.display_name} @{candidate.username}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-2">
+              <div className="text-sm font-medium text-foreground">当前负责人</div>
+              <select
+                value={assignmentDraft.current_owner_user_id ?? ""}
+                onChange={(e) =>
+                  setAssignmentDraft((current) => ({
+                    ...current,
+                    current_owner_user_id: e.target.value ? Number(e.target.value) : null,
+                  }))
+                }
+                className="app-select h-10 w-full"
+              >
+                <option value="">未分配</option>
+                {currentOwnerOptions.map((candidate) => (
+                  <option key={candidate.id} value={candidate.id}>
+                    {candidate.display_name} @{candidate.username}
+                  </option>
+                ))}
+              </select>
+              <div className="text-xs text-muted-foreground">当前负责人只能从已分配槽位中选择。</div>
+            </div>
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              className="app-btn-secondary"
+              onClick={() => setAssignmentDialogOpen(false)}
+              disabled={assignmentSubmitting}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="app-btn-primary"
+              onClick={handleSubmitAssignment}
+              disabled={assignmentSubmitting}
+            >
+              {assignmentSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              保存分配
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={createCaseOpen} onOpenChange={setCreateCaseOpen}>
         <DialogContent className="max-w-lg border-border bg-popover text-popover-foreground">
@@ -1384,4 +1860,3 @@ export default function TicketDetailPage() {
     </div>
   );
 }
-

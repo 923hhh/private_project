@@ -18,6 +18,7 @@ from app.models.maintenance_domain import (
     WorkOrderFilling,
     WorkOrderFillingAttachment,
     WorkOrderMessage,
+    UserNotification,
 )
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "FlowTemplate",
     "WorkOrder",
     "WorkOrderEvent",
+    "UserNotification",
     "RetrievalSnapshot",
     "WorkOrderMessage",
     "Attachment",

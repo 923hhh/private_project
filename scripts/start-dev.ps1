@@ -178,7 +178,7 @@ function Stop-ListeningProcesses {
 
 function Wait-ForTcpPort {
     param(
-        [string]$Host,
+        [string]$TargetHost,
         [int]$Port,
         [int]$TimeoutSeconds = 60,
         [string]$ServiceName = "服务"
@@ -186,7 +186,7 @@ function Wait-ForTcpPort {
 
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        if (Test-NetConnection -ComputerName $Host -Port $Port -InformationLevel Quiet -WarningAction SilentlyContinue) {
+        if (Test-NetConnection -ComputerName $TargetHost -Port $Port -InformationLevel Quiet -WarningAction SilentlyContinue) {
             Write-Host "$ServiceName 端口 $Port 已就绪。" -ForegroundColor Green
             return $true
         }
@@ -219,6 +219,57 @@ function Wait-ForHttpHealthy {
     return $false
 }
 
+function Set-FrontendApiBaseUrl {
+    param(
+        [string]$EnvPath,
+        [string]$ApiBaseUrl
+    )
+
+    if (-not (Test-Path $EnvPath)) {
+        @"
+NEXT_PUBLIC_API_BASE_URL=$ApiBaseUrl
+"@ | Set-Content -Path $EnvPath -Encoding UTF8
+        Write-Host "已创建 frontend/.env.local 并写入 NEXT_PUBLIC_API_BASE_URL。" -ForegroundColor Green
+        return
+    }
+
+    $envContent = Get-Content -Path $EnvPath -Raw
+    if ($envContent -match "(?m)^NEXT_PUBLIC_API_BASE_URL=") {
+        $envContent = [regex]::Replace($envContent, "(?m)^NEXT_PUBLIC_API_BASE_URL=.*$", "NEXT_PUBLIC_API_BASE_URL=$ApiBaseUrl")
+    } else {
+        $envContent = $envContent.TrimEnd() + "`r`nNEXT_PUBLIC_API_BASE_URL=$ApiBaseUrl`r`n"
+    }
+    Set-Content -Path $EnvPath -Value $envContent -Encoding UTF8
+    Write-Host "已更新 frontend/.env.local 的 NEXT_PUBLIC_API_BASE_URL 为 $ApiBaseUrl。" -ForegroundColor Green
+}
+
+function Wait-ForTunnelPublicUrl {
+    param(
+        [string]$LogPath,
+        [int]$TimeoutSeconds = 30,
+        [string]$TunnelName = "隧道"
+    )
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $pattern = "https://[-a-zA-Z0-9\.]+(?:trycloudflare\.com|loca\.lt)"
+
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Path $LogPath) {
+            $content = Get-Content -Path $LogPath -Raw -ErrorAction SilentlyContinue
+            if ($content) {
+                $match = [regex]::Match($content, $pattern)
+                if ($match.Success) {
+                    Write-Host "$TunnelName 公网地址已解析：$($match.Value)" -ForegroundColor Green
+                    return $match.Value
+                }
+            }
+        }
+        Start-Sleep -Milliseconds 500
+    }
+
+    return $null
+}
+
 $VenvPy = Join-Path $RepoRoot "venv\Scripts\python.exe"
 if (-not (Test-Path $VenvPy)) {
     $VenvPy = "python"
@@ -235,21 +286,7 @@ try {
 Write-Host "数据库迁移完成。" -ForegroundColor Green
 
 $FrontendEnvLocal = Join-Path $Frontend ".env.local"
-if (-not (Test-Path $FrontendEnvLocal)) {
-    @"
-NEXT_PUBLIC_API_BASE_URL=$BackendBaseUrl
-"@ | Set-Content -Path $FrontendEnvLocal -Encoding UTF8
-    Write-Host "已创建 frontend/.env.local 并写入 NEXT_PUBLIC_API_BASE_URL。" -ForegroundColor Green
-} else {
-    $envContent = Get-Content -Path $FrontendEnvLocal -Raw
-    if ($envContent -match "(?m)^NEXT_PUBLIC_API_BASE_URL=") {
-        $envContent = [regex]::Replace($envContent, "(?m)^NEXT_PUBLIC_API_BASE_URL=.*$", "NEXT_PUBLIC_API_BASE_URL=$BackendBaseUrl")
-    } else {
-        $envContent = $envContent.TrimEnd() + "`r`nNEXT_PUBLIC_API_BASE_URL=$BackendBaseUrl`r`n"
-    }
-    Set-Content -Path $FrontendEnvLocal -Value $envContent -Encoding UTF8
-    Write-Host "已更新 frontend/.env.local 的 NEXT_PUBLIC_API_BASE_URL 为 $BackendBaseUrl。" -ForegroundColor Green
-}
+Set-FrontendApiBaseUrl -EnvPath $FrontendEnvLocal -ApiBaseUrl $BackendBaseUrl
 
 $FrontendNodeModules = Join-Path $Frontend "node_modules"
 if (-not (Test-Path $FrontendNodeModules)) {
@@ -315,24 +352,24 @@ Set-Location -LiteralPath '$Frontend'
 Write-Host '前端内网穿透（cloudflared）已启动（Ctrl+C 停止）。' -ForegroundColor Magenta
 Write-Host '提示：若仅穿透前端，外网访问建议切演示模式。' -ForegroundColor Yellow
 # 兼容某些环境的系统代理/鉴权拦截：确保 localhost 不走代理
-\$env:NO_PROXY='localhost,127.0.0.1'
-\$env:no_proxy='localhost,127.0.0.1'
-\$env:HTTP_PROXY=''
-\$env:http_proxy=''
-\$env:HTTPS_PROXY=''
-\$env:https_proxy=''
+`$env:NO_PROXY='localhost,127.0.0.1'
+`$env:no_proxy='localhost,127.0.0.1'
+`$env:HTTP_PROXY=''
+`$env:http_proxy=''
+`$env:HTTPS_PROXY=''
+`$env:https_proxy=''
 Write-Host '若仍报 Unauthorized，可尝试关闭系统代理/Clash 或改用本机网卡 IP（见脚本注释）。' -ForegroundColor Yellow
 Write-Host 'Origin: $originUrl' -ForegroundColor Cyan
 # 等待前端端口就绪（share 模式 build 期间端口未监听，外网会看到 503）
-\$maxWaitSec = 60
-\$waited = 0
-while (\$waited -lt \$maxWaitSec) {
-  \$ok = Test-NetConnection -ComputerName '$TunnelOriginHost' -Port $FrontendPort -InformationLevel Quiet
-  if (\$ok) { break }
+`$maxWaitSec = 60
+`$waited = 0
+while (`$waited -lt `$maxWaitSec) {
+  `$ok = Test-NetConnection -ComputerName '$TunnelOriginHost' -Port $FrontendPort -InformationLevel Quiet
+  if (`$ok) { break }
   Start-Sleep -Seconds 1
-  \$waited++
+  `$waited++
 }
-if (\$waited -ge \$maxWaitSec) {
+if (`$waited -ge `$maxWaitSec) {
   Write-Host '警告：等待前端端口超时，仍将尝试启动穿透。若外网 503，请确认前端已启动完成。' -ForegroundColor Yellow
 } else {
   Write-Host '前端端口已就绪，开始建立公网隧道…' -ForegroundColor Green
@@ -356,25 +393,32 @@ $tunnelCommand
 }
 
 $backendTunnelLine = ""
+$backendTunnelLogPath = $null
 if ($EnableBackendTunnel) {
     if ($TunnelProvider -eq "cloudflared") {
         $backendOriginUrl = "http://$TunnelOriginHost`:$BackendPort"
+        $backendTunnelLogPath = Join-Path $RepoRoot ".tools\backend-tunnel.log"
         $backendTunnelLine = @"
 Set-Location -LiteralPath '$Backend'
 Write-Host '后端内网穿透（cloudflared）已启动（Ctrl+C 停止）。' -ForegroundColor Magenta
 Write-Host 'Origin: $backendOriginUrl' -ForegroundColor Cyan
-\$env:NO_PROXY='localhost,127.0.0.1'
-\$env:no_proxy='localhost,127.0.0.1'
-\$env:HTTP_PROXY=''
-\$env:http_proxy=''
-\$env:HTTPS_PROXY=''
-\$env:https_proxy=''
-& '$cloudflaredPath' tunnel --url $backendOriginUrl --protocol http2 --http-host-header localhost:$BackendPort
+if (Test-Path '$backendTunnelLogPath') { Remove-Item -LiteralPath '$backendTunnelLogPath' -Force }
+`$env:NO_PROXY='localhost,127.0.0.1'
+`$env:no_proxy='localhost,127.0.0.1'
+`$env:HTTP_PROXY=''
+`$env:http_proxy=''
+`$env:HTTPS_PROXY=''
+`$env:https_proxy=''
+& '$cloudflaredPath' tunnel --url $backendOriginUrl --protocol http2 --http-host-header localhost:$BackendPort 2>&1 | Tee-Object -FilePath '$backendTunnelLogPath'
 "@
     } else {
+        $backendTunnelLogPath = Join-Path $RepoRoot ".tools\backend-tunnel.log"
         $backendTunnelLine = @"
-Set-Location -LiteralPath '$Backend'
-Write-Host '后端内网穿透（localtunnel）不建议：请使用 cloudflared。' -ForegroundColor Yellow
+Set-Location -LiteralPath '$Frontend'
+Write-Host '后端内网穿透（localtunnel）已启动（Ctrl+C 停止）。' -ForegroundColor Magenta
+Write-Host 'Origin: http://127.0.0.1:$BackendPort' -ForegroundColor Cyan
+if (Test-Path '$backendTunnelLogPath') { Remove-Item -LiteralPath '$backendTunnelLogPath' -Force }
+npx localtunnel --port $BackendPort 2>&1 | Tee-Object -FilePath '$backendTunnelLogPath'
 "@
     }
 }
@@ -383,10 +427,8 @@ Stop-ListeningProcesses -Port $BackendPort -ServiceName "后端"
 Stop-ListeningProcesses -Port $FrontendPort -ServiceName "前端"
 
 Start-Process powershell.exe -ArgumentList @("-NoExit", "-NoProfile", "-Command", $backendLine)
-Start-Sleep -Seconds 1
-Start-Process powershell.exe -ArgumentList @("-NoExit", "-NoProfile", "-Command", $frontendLine)
 
-$backendReady = Wait-ForTcpPort -Host $BackendHost -Port $BackendPort -TimeoutSeconds 45 -ServiceName "后端"
+$backendReady = Wait-ForTcpPort -TargetHost $BackendHost -Port $BackendPort -TimeoutSeconds 45 -ServiceName "后端"
 if (-not $backendReady) {
     throw "后端进程已拉起，但端口 $BackendPort 在 45 秒内未监听成功。"
 }
@@ -396,7 +438,24 @@ if (-not $backendHealthy) {
     throw "后端端口已监听，但 /health 在 45 秒内未通过，请检查启动窗口日志。"
 }
 
-$frontendReady = Wait-ForTcpPort -Host $FrontendHost -Port $FrontendPort -TimeoutSeconds 90 -ServiceName "前端"
+$resolvedBackendPublicUrl = $null
+if ($EnableBackendTunnel) {
+    Start-Sleep -Milliseconds 500
+    Start-Process powershell.exe -ArgumentList @("-NoExit", "-NoProfile", "-Command", $backendTunnelLine)
+
+    if ($EnableFrontendTunnel -and $backendTunnelLogPath) {
+        $resolvedBackendPublicUrl = Wait-ForTunnelPublicUrl -LogPath $backendTunnelLogPath -TimeoutSeconds 30 -TunnelName "后端隧道"
+        if (-not $resolvedBackendPublicUrl) {
+            throw "后端公网地址在 30 秒内未解析成功，无法为前端写入可外网访问的 API 地址。请检查后端穿透窗口日志。"
+        }
+        Set-FrontendApiBaseUrl -EnvPath $FrontendEnvLocal -ApiBaseUrl $resolvedBackendPublicUrl
+    }
+}
+
+Start-Sleep -Seconds 1
+Start-Process powershell.exe -ArgumentList @("-NoExit", "-NoProfile", "-Command", $frontendLine)
+
+$frontendReady = Wait-ForTcpPort -TargetHost $FrontendHost -Port $FrontendPort -TimeoutSeconds 90 -ServiceName "前端"
 if (-not $frontendReady) {
     throw "前端进程已拉起，但端口 $FrontendPort 在 90 秒内未监听成功。"
 }
@@ -405,17 +464,17 @@ if ($EnableFrontendTunnel) {
     Start-Sleep -Milliseconds 500
     Start-Process powershell.exe -ArgumentList @("-NoExit", "-NoProfile", "-Command", $tunnelLine)
 }
-if ($EnableBackendTunnel) {
-    Start-Sleep -Milliseconds 500
-    Start-Process powershell.exe -ArgumentList @("-NoExit", "-NoProfile", "-Command", $backendTunnelLine)
-}
 Write-Host "后端与前端已完成验活：后端 :$BackendPort，前端 :$FrontendPort。" -ForegroundColor Green
 if ($EnableFrontendTunnel) {
     Write-Host "已额外启动前端内网穿透窗口（会输出公网访问地址）。Provider=$TunnelProvider" -ForegroundColor Magenta
 }
 if ($EnableBackendTunnel) {
     Write-Host "已额外启动后端内网穿透窗口（会输出公网访问地址）。" -ForegroundColor Magenta
-    Write-Host "外网真实数据访问需要将该后端公网地址写入 frontend/.env.local 的 NEXT_PUBLIC_API_BASE_URL。" -ForegroundColor Yellow
+    if ($resolvedBackendPublicUrl) {
+        Write-Host "前端已自动改用后端公网地址：$resolvedBackendPublicUrl" -ForegroundColor Yellow
+    } else {
+        Write-Host "若需要外网真实数据访问，请将后端公网地址写入 frontend/.env.local 的 NEXT_PUBLIC_API_BASE_URL。" -ForegroundColor Yellow
+    }
 }
 Write-Host "后端文档: $BackendBaseUrl/docs" -ForegroundColor Cyan
 Write-Host "前端地址: $FrontendBaseUrl" -ForegroundColor Cyan

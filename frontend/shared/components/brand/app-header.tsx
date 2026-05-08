@@ -3,13 +3,15 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { Bell, Search, Settings, HelpCircle, ChevronDown, Menu, LogIn, LogOut, ShieldCheck, Server, Wrench } from "lucide-react"
+import { Search, Settings, HelpCircle, ChevronDown, Menu, LogIn, LogOut, ShieldCheck, Server, Wrench } from "lucide-react"
+import { useMaintenanceAuth } from "@/features/auth/maintenance-auth"
+import { canAccessAdmin, canAccessKnowledgePublish, canAccessKnowledgeReview, canResolveApproval } from "@/features/auth/permissions"
 import { pingBackendReadiness, fetchHealth, fetchMaintenanceHealth, getApiBase } from "@/features/dashboard/api"
 import { AppLogoLink } from "@/shared/components/brand/app-logo-link"
+import { NotificationMenu } from "@/shared/components/brand/notification-menu"
 import { ROUTES } from "@/shared/lib/routes"
 import {
   clearMaintenanceToken,
-  getMaintenanceToken,
   MAINTENANCE_AUTH_EXPIRED_EVENT,
 } from "@/features/auth/lib/token-store"
 import { Button } from "@/shared/components/ui/button"
@@ -33,47 +35,70 @@ import {
 } from "@/shared/components/ui/dropdown-menu"
 import { toast } from "sonner"
 
-type NotificationItem = {
-  id: number
-  title: string
-  detail: string
-  read: boolean
-}
-
-const dashboardNavItems = [
+const baseDashboardNavItems: Array<{ label: string; href: string }> = [
   { label: "主页", href: ROUTES.marketingHome },
   { label: "检修总览", href: ROUTES.dashboard },
   { label: "智能诊断", href: "/tasks" },
   { label: "检修工单", href: "/tickets" },
   { label: "知识案例库", href: "/cases" },
-] as const
+] 
 
-const knowledgeSubItems = [
+const baseKnowledgeSubItems: Array<{ label: string; href: string }> = [
   { label: "知识文档管理", href: "/knowledge" },
   { label: "知识图谱", href: "/knowledge/graph" },
-] as const
+] 
 
-const marketingNavItem = { label: "产品官网", href: ROUTES.marketingHome } as const
+const marketingNavItem: { label: string; href: string } = { label: "产品官网", href: ROUTES.marketingHome }
 
 export function Header() {
   const router = useRouter()
   const pathname = usePathname()
+  const { isLoggedIn, user } = useMaintenanceAuth()
   const headerRef = useRef<HTMLElement | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [searchKeyword, setSearchKeyword] = useState("")
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
   const [healthStatus, setHealthStatus] = useState<string>("未检查")
   const [maintenanceStatus, setMaintenanceStatus] = useState<string>("未检查")
   const [readinessStatus, setReadinessStatus] = useState<string>("未检查")
-  const [notifications, setNotifications] = useState<NotificationItem[]>([
-    { id: 1, title: "工单超时预警", detail: "TK-2024-0891 还有 28 分钟超时", read: false },
-    { id: 2, title: "诊断任务完成", detail: "TSK-2024-0234 已生成诊断结论", read: false },
-    { id: 3, title: "新案例待审核", detail: "CASE-018 已提交待审核", read: true },
-  ])
-  const unreadCount = notifications.filter((item) => !item.read).length
-  const searchPool = useMemo(() => [...dashboardNavItems, ...knowledgeSubItems, marketingNavItem], [])
+  const dashboardNavItems = useMemo(() => {
+    const items = [...baseDashboardNavItems]
+    if (canResolveApproval(user)) {
+      items.splice(4, 0, { label: "审批任务", href: ROUTES.approvalTasks })
+    }
+    return items
+  }, [user])
+  const knowledgeSubItems = useMemo(() => {
+    const items = [...baseKnowledgeSubItems]
+    if (canAccessKnowledgeReview(user)) {
+      items.push({ label: "知识审核", href: ROUTES.knowledgeReview })
+    }
+    if (canAccessKnowledgePublish(user)) {
+      items.push({ label: "知识发布", href: ROUTES.knowledgePublish })
+    }
+    return items
+  }, [user])
+  const managementItems = useMemo(() => {
+    if (!canAccessAdmin(user)) return []
+    return [
+      { label: "用户管理", href: ROUTES.adminUsers },
+      { label: "系统配置", href: ROUTES.adminSystemConfigs },
+      { label: "审计日志", href: ROUTES.adminAuditLogs },
+    ]
+  }, [user])
+  const roleLabel = useMemo(() => {
+    const roles = user?.roles ?? []
+    if (roles.includes("admin")) return "管理员"
+    if (roles.includes("expert")) return "专家"
+    if (roles.includes("safety")) return "审批员"
+    if (roles.includes("worker")) return "检修员"
+    return "访客"
+  }, [user])
+  const searchPool = useMemo(
+    () => [...dashboardNavItems, ...knowledgeSubItems, ...managementItems, marketingNavItem],
+    [dashboardNavItems, knowledgeSubItems, managementItems],
+  )
   const searchResults = useMemo(() => {
     const q = searchKeyword.trim().toLowerCase()
     if (!q) return searchPool
@@ -81,12 +106,8 @@ export function Header() {
   }, [searchPool, searchKeyword])
 
   useEffect(() => {
-    setIsLoggedIn(Boolean(getMaintenanceToken()))
-  }, [pathname])
-
-  useEffect(() => {
     const handleExpired = () => {
-      setIsLoggedIn(false)
+      setSettingsOpen(false)
     }
     window.addEventListener(MAINTENANCE_AUTH_EXPIRED_EVENT, handleExpired as EventListener)
     return () => {
@@ -96,7 +117,6 @@ export function Header() {
 
   const handleLogout = () => {
     clearMaintenanceToken()
-    setIsLoggedIn(false)
     setSettingsOpen(false)
     toast.success("已退出登录")
     router.push(ROUTES.login)
@@ -249,6 +269,19 @@ export function Header() {
                     >
                       全局搜索
                     </button>
+                    {managementItems.map((item) => (
+                      <button
+                        key={item.href}
+                        type="button"
+                        className="rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                        onClick={() => {
+                          setMobileNavOpen(false)
+                          router.push(item.href)
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -321,46 +354,7 @@ export function Header() {
             <Search className="h-4 w-4" />
           </Button>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="relative h-8 w-8 text-foreground/80 hover:bg-accent hover:text-foreground"
-              >
-                <Bell className="h-4 w-4" />
-                {unreadCount > 0 ? <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[#ef4444]" /> : null}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80 border-border bg-popover p-1 text-popover-foreground">
-              <div className="px-2 py-1.5 text-xs text-muted-foreground">通知中心</div>
-              {notifications.map((item) => (
-                <DropdownMenuItem
-                  key={item.id}
-                  className="flex flex-col items-start gap-0.5 rounded-md px-2 py-2 text-foreground focus:bg-accent focus:text-accent-foreground"
-                  onClick={() => {
-                    setNotifications((prev) => prev.map((n) => (n.id === item.id ? { ...n, read: true } : n)))
-                  }}
-                >
-                  <div className="flex w-full items-center justify-between">
-                    <span className="text-sm">{item.title}</span>
-                    {!item.read ? <span className="h-2 w-2 rounded-full bg-[#ef4444]" /> : null}
-                  </div>
-                  <span className="text-xs text-muted-foreground">{item.detail}</span>
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator className="bg-border" />
-              <DropdownMenuItem
-                className="text-center text-xs text-muted-foreground focus:bg-accent"
-                onClick={() => {
-                  setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
-                }}
-              >
-                全部标为已读
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <NotificationMenu />
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -418,13 +412,19 @@ export function Header() {
                 <Button variant="ghost" className="h-8 gap-2 px-2 hover:bg-accent">
                   <Avatar className="h-6 w-6">
                     <AvatarImage src="/placeholder-user.jpg" />
-                    <AvatarFallback className="bg-[#5e6ad2] text-xs text-white">管</AvatarFallback>
+                    <AvatarFallback className="bg-[#5e6ad2] text-xs text-white">
+                      {(user?.display_name || user?.username || roleLabel).slice(0, 1)}
+                    </AvatarFallback>
                   </Avatar>
-                  <span className="hidden text-sm text-foreground lg:inline-block">管理员</span>
+                  <span className="hidden text-sm text-foreground lg:inline-block">
+                    {user?.display_name || user?.username || roleLabel}
+                  </span>
                   <ChevronDown className="h-3 w-3 text-foreground/70" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44 border-border bg-popover text-popover-foreground">
+                <div className="px-2 py-1.5 text-xs text-muted-foreground">{roleLabel}</div>
+                <DropdownMenuSeparator className="bg-border" />
                 <DropdownMenuItem
                   className="text-foreground focus:bg-accent focus:text-accent-foreground"
                   onClick={handleLogout}
@@ -518,6 +518,11 @@ export function Header() {
                 <div className="text-sm text-muted-foreground">
                   {isLoggedIn ? "当前已登录检修域后台，可访问受控能力。" : "当前未登录，建议先进入登录页获取检修域令牌。"}
                 </div>
+                {user ? (
+                  <div className="mt-3 text-xs text-muted-foreground">
+                    当前账号：{user.display_name || user.username} · {roleLabel}
+                  </div>
+                ) : null}
               </div>
               <div className="rounded-lg border border-border bg-background p-4">
                 <div className="mb-2 flex items-center gap-2 text-sm font-medium text-foreground">
@@ -585,6 +590,59 @@ export function Header() {
                 >
                   查看接口文档
                 </Button>
+                {canResolveApproval(user) ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-border"
+                    onClick={() => {
+                      setSettingsOpen(false)
+                      router.push(ROUTES.approvalTasks)
+                    }}
+                  >
+                    审批任务
+                  </Button>
+                ) : null}
+                {canAccessKnowledgeReview(user) ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-border"
+                    onClick={() => {
+                      setSettingsOpen(false)
+                      router.push(ROUTES.knowledgeReview)
+                    }}
+                  >
+                    知识审核
+                  </Button>
+                ) : null}
+                {canAccessKnowledgePublish(user) ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-border"
+                    onClick={() => {
+                      setSettingsOpen(false)
+                      router.push(ROUTES.knowledgePublish)
+                    }}
+                  >
+                    知识发布
+                  </Button>
+                ) : null}
+                {managementItems.map((item) => (
+                  <Button
+                    key={item.href}
+                    type="button"
+                    variant="outline"
+                    className="border-border"
+                    onClick={() => {
+                      setSettingsOpen(false)
+                      router.push(item.href)
+                    }}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
               </div>
             </div>
           </div>

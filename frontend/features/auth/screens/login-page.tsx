@@ -11,7 +11,6 @@ import {
   EyeOff,
   Lock,
   User,
-  ShieldCheck,
   ArrowLeft,
   CheckCircle2,
   XCircle,
@@ -19,6 +18,8 @@ import {
   Loader2,
   KeyRound,
 } from "lucide-react"
+
+const REMEMBERED_CREDENTIALS_KEY = "dachuang_remembered_password"
 
 // 输入框组件
 function InputField({
@@ -131,6 +132,7 @@ function SuccessBanner({ message }: { message: string }) {
 }
 
 export default function LoginPage() {
+  const currentYear = new Date().getFullYear()
   const router = useRouter()
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
@@ -154,6 +156,16 @@ export default function LoginPage() {
     if (params.get("reason") === "expired") {
       setError("登录已失效，请重新登录")
     }
+    try {
+      const raw = window.localStorage.getItem(REMEMBERED_CREDENTIALS_KEY)
+      if (!raw) return
+      const saved = JSON.parse(raw) as { username?: string; password?: string }
+      if (saved.username) setUsername(saved.username)
+      if (saved.password) setPassword(saved.password)
+      if (saved.username || saved.password) setRememberMe(true)
+    } catch {
+      window.localStorage.removeItem(REMEMBERED_CREDENTIALS_KEY)
+    }
   }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -175,8 +187,16 @@ export default function LoginPage() {
 
     try {
       const data = await maintenanceLogin(username, password)
-      setMaintenanceToken(data.access_token, rememberMe)
-      setSuccess(rememberMe ? "登录成功，已记住当前登录状态" : "登录成功，当前会话已保持登录")
+      setMaintenanceToken(data.access_token)
+      if (rememberMe) {
+        window.localStorage.setItem(
+          REMEMBERED_CREDENTIALS_KEY,
+          JSON.stringify({ username, password }),
+        )
+      } else {
+        window.localStorage.removeItem(REMEMBERED_CREDENTIALS_KEY)
+      }
+      setSuccess(rememberMe ? "登录成功，已保存本机登录信息" : "登录成功，正在进入系统")
       router.push(nextPath)
     } catch (e) {
       setError(e instanceof Error ? e.message : "登录失败")
@@ -210,7 +230,7 @@ export default function LoginPage() {
       </div>
 
       {/* 登录卡片 */}
-      <div className="relative z-10 w-full max-w-md">
+      <div className="relative z-10 w-full max-w-lg">
         {/* 返回主站链接 */}
         <Link
           href="/"
@@ -221,14 +241,13 @@ export default function LoginPage() {
         </Link>
 
         {/* 主卡片 */}
-        <div className="rounded-xl border border-border bg-panel/80 p-6 shadow-2xl backdrop-blur-sm sm:p-8">
+        <div className="rounded-xl border border-border bg-panel/80 p-8 shadow-2xl backdrop-blur-sm sm:p-10">
           {/* Logo和标题 */}
           <div className="mb-8 text-center">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl border border-slate-200 bg-white/90 dark:border-border dark:bg-[rgba(255,255,255,0.03)]">
               <KeyRound className="h-7 w-7 text-brand" />
             </div>
             <h1 className="text-xl font-semibold text-brand dark:text-primary">运维管理后台</h1>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">请使用您的账号登录系统</p>
           </div>
 
           {/* 错误/成功提示 */}
@@ -264,7 +283,7 @@ export default function LoginPage() {
               showPassword={showPassword}
             />
 
-            {/* 记住我和忘记密码 */}
+            {/* 登录辅助项 */}
             <div className="flex items-center justify-between">
               <label className="flex cursor-pointer items-center gap-2">
                 <input
@@ -273,7 +292,7 @@ export default function LoginPage() {
                   onChange={(e) => setRememberMe(e.target.checked)}
                   className="h-4 w-4 rounded border border-border bg-card text-brand focus:ring-1 focus:ring-brand/50 focus:ring-offset-0"
                 />
-                <span className="text-sm text-slate-700 dark:text-slate-200">记住登录状态</span>
+                <span className="text-sm text-slate-700 dark:text-slate-200">记住密码</span>
               </label>
               <Link
                 href="/login"
@@ -305,22 +324,17 @@ export default function LoginPage() {
               ) : (
                 <>
                   <Lock className="h-4 w-4" />
-                  安全登录
+                  登录系统
                 </>
               )}
             </button>
           </form>
 
-          {/* 安全提示 */}
-          <div className="mt-6 flex items-center justify-center gap-2 text-xs text-slate-600 dark:text-slate-400">
-            <ShieldCheck className="h-3.5 w-3.5" />
-            <span>连接已加密，您的信息受到保护</span>
-          </div>
         </div>
 
         {/* 版权信息 */}
         <p className="mt-6 text-center text-xs text-slate-700 dark:text-slate-400">
-          &copy; 2024 工业故障诊断平台 · v2.1.0
+          &copy; {currentYear} 工业故障诊断平台后台
         </p>
       </div>
     </div>

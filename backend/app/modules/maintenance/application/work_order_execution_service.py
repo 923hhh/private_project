@@ -19,6 +19,12 @@ from app.modules.maintenance.errors import MaintenanceAPIError
 
 AuditCallback = Callable[[str, str, str, int | None, dict | None, str | None], Awaitable[None]]
 
+MAINTENANCE_LEVEL_FALLBACKS: dict[str, tuple[str, ...]] = {
+    "standard": ("计划定修", "标准检修"),
+    "routine": ("例行检修",),
+    "emergency": ("紧急检修",),
+}
+
 
 class MaintenanceWorkOrderExecutionService:
     """Execution entry, completion, expert review acceptance, and filling submission."""
@@ -35,21 +41,37 @@ class MaintenanceWorkOrderExecutionService:
         self.work_order_service = work_order_service
         self.device_service = device_service
 
+    async def _resolve_flow_template(self, *, device_type: str, maintenance_level: str | None) -> FlowTemplate | None:
+        requested = (maintenance_level or "计划定修").strip() or "计划定修"
+        candidates: list[str] = [requested]
+        for alias in MAINTENANCE_LEVEL_FALLBACKS.get(requested, ()):
+            if alias not in candidates:
+                candidates.append(alias)
+
+        for candidate in candidates:
+            template = (
+                await self.session.execute(
+                    select(FlowTemplate).where(
+                        FlowTemplate.device_type == device_type,
+                        FlowTemplate.maintenance_level == candidate,
+                        FlowTemplate.status == "published",
+                    )
+                )
+            ).scalar_one_or_none()
+            if template is not None:
+                return template
+        return None
+
     async def action_enter_maintenance(self, work_order_id: int, ctx: CurrentUserCtx) -> dict[str, Any]:
         work_order = await self.work_order_service.get_work_order(work_order_id)
         await self.work_order_service.assert_work_order_readable(ctx, work_order)
-        if work_order.status not in ("S3", "S5"):
+        if work_order.status not in ("S1", "S3", "S5"):
             raise MaintenanceAPIError(409, "INVALID_STATE_TRANSITION", "当前状态不允许进入检修")
         device = await self.device_service.get_device(work_order.device_id)
-        template = (
-            await self.session.execute(
-                select(FlowTemplate).where(
-                    FlowTemplate.device_type == device.device_type,
-                    FlowTemplate.maintenance_level == (work_order.maintenance_level or "计划定修"),
-                    FlowTemplate.status == "published",
-                )
-            )
-        ).scalar_one_or_none()
+        template = await self._resolve_flow_template(
+            device_type=device.device_type,
+            maintenance_level=work_order.maintenance_level,
+        )
         if template:
             work_order.flow_template_id = template.id
             work_order.current_step_no = 1

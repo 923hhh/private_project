@@ -8,11 +8,11 @@ from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.metrics import increment_counter, observe_duration
-from app.db.models.knowledge import KnowledgeChunk, KnowledgeDocument, KnowledgeImportJob
+from app.db.models.knowledge import KnowledgeChunk, KnowledgeDocument, KnowledgeImportJob, KnowledgeRelation
 from app.integrations.pdf_import import PdfKnowledgeImportService
 from app.modules.knowledge.application.search_service import KnowledgeService
 from app.modules.knowledge.schemas.search import KnowledgeDocumentCreate
@@ -443,6 +443,24 @@ class KnowledgeImportService:
             "created_at": self._as_utc_aware(document.created_at),
             "updated_at": self._as_utc_aware(document.updated_at),
         }
+
+    async def delete_document(self, document_id: int) -> None:
+        """Delete a knowledge document and remove all graph relations that reference it."""
+        document = await self._ensure_document(document_id)
+        await self.session.execute(
+            delete(KnowledgeRelation).where(
+                (KnowledgeRelation.source_kind == "knowledge_document")
+                & (KnowledgeRelation.source_id == document_id)
+            )
+        )
+        await self.session.execute(
+            delete(KnowledgeRelation).where(
+                (KnowledgeRelation.target_kind == "knowledge_document")
+                & (KnowledgeRelation.target_id == document_id)
+            )
+        )
+        await self.session.delete(document)
+        await self.session.commit()
 
     def _build_document_summary(
         self,

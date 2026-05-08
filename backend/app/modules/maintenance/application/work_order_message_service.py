@@ -1,11 +1,15 @@
 """Work-order message operations for maintenance."""
 from __future__ import annotations
 
+import asyncio
+from time import perf_counter
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.metrics import observe_duration
+from app.db.session import get_session_factory
 from app.db.models.maintenance import WorkOrderMessage
 from app.modules.maintenance.application.work_order_service import MaintenanceWorkOrderService
 from app.modules.maintenance.datetime_util import to_iso_cn, utc_now_naive
@@ -54,17 +58,24 @@ class MaintenanceWorkOrderMessageService:
         page: int,
         page_size: int,
     ) -> dict[str, Any]:
+        started = perf_counter()
         work_order = await self.work_order_service.get_work_order(work_order_id)
         await self.work_order_service.assert_work_order_readable(ctx, work_order)
         stmt = select(WorkOrderMessage).where(WorkOrderMessage.work_order_id == work_order_id)
-        total = (await self.session.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
-        rows = (
-            await self.session.execute(
-                stmt.order_by(WorkOrderMessage.id.asc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
+        count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
+        rows_stmt = (
+            stmt.order_by(WorkOrderMessage.id.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        session_factory = get_session_factory()
+        async with session_factory() as count_session, session_factory() as rows_session:
+            total_result, rows_result = await asyncio.gather(
+                count_session.execute(count_stmt),
+                rows_session.execute(rows_stmt),
             )
-        ).scalars().all()
+        total = total_result.scalar_one()
+        rows = rows_result.scalars().all()
         items = [
             {
                 "id": message.id,
@@ -75,4 +86,10 @@ class MaintenanceWorkOrderMessageService:
             }
             for message in rows
         ]
+        await observe_duration(
+            "maintenance_work_order_query_duration_ms",
+            (perf_counter() - started) * 1000,
+            endpoint="list_messages",
+            phase="count_and_rows",
+        )
         return {"items": items, "total": total, "page": page, "page_size": page_size}

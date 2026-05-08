@@ -53,13 +53,9 @@ async def _resolve_entities(
     for kind, ids in by_kind.items():
         model = _KIND_TABLE.get(kind)
         if model is None:
-            for entity_id in ids:
-                node_id = _node_id(kind, entity_id)
-                nodes[node_id] = GraphNode(id=node_id, kind=kind, label=f"{kind}#{entity_id}")
             continue
 
         rows = (await session.execute(select(model).where(model.id.in_(ids)))).scalars().all()
-        found_ids = set()
         for row in rows:
             node_id = _node_id(kind, row.id)
             label_attr = _KIND_LABEL_ATTR.get(kind, "id")
@@ -70,15 +66,6 @@ async def _resolve_entities(
                 if val is not None:
                     props[attr] = val
             nodes[node_id] = GraphNode(id=node_id, kind=kind, label=label, properties=props)
-            found_ids.add(row.id)
-        for entity_id in ids:
-            if entity_id not in found_ids:
-                node_id = _node_id(kind, entity_id)
-                nodes[node_id] = GraphNode(
-                    id=node_id,
-                    kind=kind,
-                    label=f"{kind}#{entity_id} (deleted)",
-                )
 
     return nodes
 
@@ -123,7 +110,11 @@ class KnowledgeGraphService:
             edges.append(_edge_from_row(row))
 
         nodes = await _resolve_entities(self._session, refs)
-        return GraphResponse(nodes=list(nodes.values()), edges=edges)
+        valid_node_ids = set(nodes.keys())
+        filtered_edges = [
+            edge for edge in edges if edge.source in valid_node_ids and edge.target in valid_node_ids
+        ]
+        return GraphResponse(nodes=list(nodes.values()), edges=filtered_edges)
 
     async def get_neighbors(
         self,
@@ -165,7 +156,13 @@ class KnowledgeGraphService:
             frontier = next_frontier
 
         nodes = await _resolve_entities(self._session, visited_refs)
-        return GraphResponse(nodes=list(nodes.values()), edges=list(visited_edges.values()))
+        valid_node_ids = set(nodes.keys())
+        filtered_edges = [
+            edge
+            for edge in visited_edges.values()
+            if edge.source in valid_node_ids and edge.target in valid_node_ids
+        ]
+        return GraphResponse(nodes=list(nodes.values()), edges=filtered_edges)
 
     async def get_stats(self) -> GraphStatsResponse:
         edge_counts = (

@@ -15,7 +15,6 @@ import {
 } from "@/features/dashboard/api"
 import { fetchCasesList } from "@/features/cases/api"
 import { getMaintenanceToken } from "@/features/auth/lib/token-store"
-import { fetchMaintenanceHistory, fetchTaskDetail } from "@/features/tasks/api"
 import { listWorkOrders } from "@/features/tickets/api"
 import type { FaultRecord } from "@/features/dashboard/components/fault-table"
 import { Header } from "@/shared/components/brand/app-header"
@@ -76,7 +75,6 @@ export default function DashboardPage() {
   const [overview, setOverview] = useState<WorkbenchOverview | null>(null)
   const [runtimeSnapshot, setRuntimeSnapshot] = useState<RuntimeSnapshot | null>(null)
   const [healthStatus, setHealthStatus] = useState<{ status: string; database: string } | null>(null)
-  const [linkedTaskDetails, setLinkedTaskDetails] = useState<Array<Awaited<ReturnType<typeof fetchTaskDetail>>>>([])
   const [linkedWorkOrderTotal, setLinkedWorkOrderTotal] = useState(0)
   const [linkedPendingCaseTotal, setLinkedPendingCaseTotal] = useState(0)
   const [linkedCaseTotal, setLinkedCaseTotal] = useState(0)
@@ -101,27 +99,10 @@ export default function DashboardPage() {
       setRuntimeSnapshot(metrics as RuntimeSnapshot)
       setHealthStatus(health)
       const maintenanceToken = getMaintenanceToken()
-      const [historyResult, workOrderResult, caseResult] = await Promise.allSettled([
-        fetchMaintenanceHistory({ limit: 12 }),
+      const [workOrderResult, caseResult] = await Promise.allSettled([
         maintenanceToken ? listWorkOrders(maintenanceToken, 1) : Promise.resolve(null),
         fetchCasesList({ limit: 50 }),
       ])
-
-      const historyTasks =
-        historyResult.status === "fulfilled" ? historyResult.value.tasks ?? [] : []
-      const detailResults = await Promise.allSettled(
-        historyTasks.slice(0, 8).map((task: { id: number }) => fetchTaskDetail(task.id)),
-      )
-      setLinkedTaskDetails(
-        detailResults
-          .filter(
-            (
-              item,
-            ): item is PromiseFulfilledResult<Awaited<ReturnType<typeof fetchTaskDetail>>> =>
-              item.status === "fulfilled",
-          )
-          .map((item: PromiseFulfilledResult<Awaited<ReturnType<typeof fetchTaskDetail>>>) => item.value),
-      )
       setLinkedWorkOrderTotal(
         workOrderResult.status === "fulfilled" ? Number(workOrderResult.value?.total ?? 0) : 0,
       )
@@ -263,36 +244,10 @@ export default function DashboardPage() {
   )
 
   const recommendedKnowledge = useMemo(() => {
-    const deduped = new Map<
-      string,
-      { k: string; title: string; desc: string; href: string }
-    >()
-    linkedTaskDetails.forEach((task) => {
-      ;(task.source_refs ?? []).forEach((ref: NonNullable<typeof task.source_refs>[number]) => {
-        const key = String(ref.chunk_id ?? `${task.id}-${ref.title}`)
-        if (deduped.has(key)) return
-        deduped.set(key, {
-          k: key,
-          title: ref.title || "无",
-          desc:
-            ref.section_path ||
-            ref.section_reference ||
-            ref.page_reference ||
-            `来自任务 #${task.id} 的已引用知识片段`,
-          href: `/tasks/${task.id}`,
-        })
-      })
-    })
-    return Array.from(deduped.values()).slice(0, 4)
-  }, [linkedTaskDetails])
+    return []
+  }, [])
 
-  const linkedKnowledgeCount = useMemo(
-    () =>
-      linkedTaskDetails.reduce((sum, task) => {
-        return sum + (task.source_refs?.length ?? 0)
-      }, 0),
-    [linkedTaskDetails],
-  )
+  const linkedKnowledgeCount = 0
 
   const closedLoopSteps = useMemo(
     () => [
@@ -698,9 +653,6 @@ export default function DashboardPage() {
                 ))}
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                <Button type="button" size="sm" onClick={() => router.push("/tasks")}>
-                  继续诊断
-                </Button>
                 <Button type="button" size="sm" variant="outline" onClick={() => router.push("/tickets")}>
                   查看工单
                 </Button>

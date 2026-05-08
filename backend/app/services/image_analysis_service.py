@@ -1,4 +1,4 @@
-"""Image-assisted retrieval helpers."""
+"""Image-assisted retrieval helpers for TODO-SB-3."""
 from __future__ import annotations
 
 import base64

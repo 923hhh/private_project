@@ -22,7 +22,7 @@ def main() -> int:
         "# OpenAPI 与《接口文档》差异摘要（检修域）",
         "",
         "本文件由 `scripts/export_openapi_maintenance_diff.py` 自动生成，**非**手工逐字段 diff。",
-        "权威契约说明仍以 [接口文档.md](接口文档.md) 为准；此处列出当前 FastAPI 暴露的检修域路径，便于发布前核对。",
+        "权威契约说明仍以 [接口文档.md](接口文档.md) 为准；此处列出当前 FastAPI 暴露的检修域路径，便于答辩前核对。",
         "",
         f"## 当前 OpenAPI 路径前缀 `{PREFIX}`（共 {len(ours)} 条）",
         "",

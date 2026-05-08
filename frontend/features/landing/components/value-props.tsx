@@ -124,7 +124,7 @@ export function ValueProps() {
         <Reveal>
           <SectionDividerCue
             badge={<SectionBadge className="mb-4">核心功能</SectionBadge>}
-            title={<h2 className={`${ui.titleH2} mb-4`}>围绕检测系统构建三项核心能力</h2>}
+            title={<h2 className={`${ui.titleH2} mb-4`}>围绕赛题要求构建三项核心能力</h2>}
             description={
               <p className={`${ui.subtitle} mx-auto max-w-2xl`}>
                 保留产品化观感，但把多模态检索、作业指引和知识更新三条能力线说清楚

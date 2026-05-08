@@ -1529,12 +1529,15 @@ export default function TaskDetailPage({ params }: { params: Promise<{ taskId: s
                                 ) : null}
                                 {item.sections.length > 0 ? (
                                   <div className="mt-3 space-y-3">
-                                    {item.sections.map((section) => (
-                                      <div key={`${item.key}-${section.label}`}>
+                                    {item.sections.map((section, sectionIndex) => (
+                                      <div key={`${item.key}-section-${sectionIndex}-${section.label || "section"}`}>
                                         <div className="text-xs font-medium text-muted-foreground">{section.label}：</div>
                                         <ul className="mt-2 space-y-1.5 pl-5 text-sm leading-6 text-foreground/90">
-                                          {section.items.map((sectionItem) => (
-                                            <li key={`${item.key}-${section.label}-${sectionItem}`} className="list-disc">
+                                          {section.items.map((sectionItem, sectionItemIndex) => (
+                                            <li
+                                              key={`${item.key}-section-${sectionIndex}-item-${sectionItemIndex}-${sectionItem || "item"}`}
+                                              className="list-disc"
+                                            >
                                               {sectionItem}
                                             </li>
                                           ))}
@@ -1545,8 +1548,11 @@ export default function TaskDetailPage({ params }: { params: Promise<{ taskId: s
                                 ) : null}
                                 {item.meta.length > 0 ? (
                                   <div className="mt-3 flex flex-wrap gap-2">
-                                    {item.meta.map((metaItem) => (
-                                      <span key={metaItem} className="rounded-md border border-border bg-muted/35 px-2.5 py-1 text-xs text-foreground/85">
+                                    {item.meta.map((metaItem, metaIndex) => (
+                                      <span
+                                        key={`${item.key}-meta-${metaIndex}-${metaItem || "meta"}`}
+                                        className="rounded-md border border-border bg-muted/35 px-2.5 py-1 text-xs text-foreground/85"
+                                      >
                                         {metaItem}
                                       </span>
                                     ))}

@@ -30,6 +30,7 @@ from app.modules.maintenance.application.flow_template_service import Maintenanc
 from app.modules.maintenance.application.knowledge_article_service import (
     MaintenanceKnowledgeArticleService,
 )
+from app.modules.maintenance.application.notification_service import MaintenanceNotificationService
 from app.modules.maintenance.application.system_config_service import MaintenanceSystemConfigService
 from app.modules.maintenance.application.work_order_execution_service import (
     MaintenanceWorkOrderExecutionService,
@@ -54,6 +55,7 @@ class MaintenanceService:
         self.attachment_service = MaintenanceAttachmentService(session, settings)
         self.audit_service = MaintenanceAuditService(session)
         self.work_order_service = MaintenanceWorkOrderService(session, self._audit)
+        self.notification_service = MaintenanceNotificationService(session)
         self.annotation_service = MaintenanceAnnotationService(
             session,
             self._audit,
@@ -121,6 +123,15 @@ class MaintenanceService:
 
     async def get_me(self, ctx: CurrentUserCtx) -> dict[str, Any]:
         return await self.auth_service.get_me(ctx)
+
+    async def list_notifications(self, ctx: CurrentUserCtx, limit: int = 20) -> dict[str, Any]:
+        return await self.notification_service.list_notifications(ctx, limit=limit)
+
+    async def mark_notification_read(self, notification_id: int, ctx: CurrentUserCtx) -> dict[str, Any]:
+        return await self.notification_service.mark_read(notification_id, ctx)
+
+    async def mark_all_notifications_read(self, ctx: CurrentUserCtx) -> dict[str, Any]:
+        return await self.notification_service.mark_all_read(ctx)
 
     async def list_devices(
         self,
@@ -214,6 +225,8 @@ class MaintenanceService:
         status: str | None,
         device_id: int | None,
         mine: bool | None,
+        assignment_role: str | None = None,
+        assignment_state: str | None = None,
     ) -> dict[str, Any]:
         return await self.work_order_service.list_work_orders(
             ctx,
@@ -222,6 +235,8 @@ class MaintenanceService:
             status=status,
             device_id=device_id,
             mine=mine,
+            assignment_role=assignment_role,
+            assignment_state=assignment_state,
         )
 
     async def delete_work_order(self, work_order_id: int, ctx: CurrentUserCtx) -> None:
@@ -229,6 +244,17 @@ class MaintenanceService:
 
     async def get_work_order_detail(self, work_order_id: int, ctx: CurrentUserCtx) -> dict[str, Any]:
         return await self.work_order_service.get_work_order_detail(work_order_id, ctx)
+
+    async def list_assignment_candidates(self, ctx: CurrentUserCtx, role_code: str | None = None) -> dict[str, Any]:
+        return await self.work_order_service.list_assignment_candidates(ctx, role_code=role_code)
+
+    async def update_work_order_assignment(
+        self,
+        work_order_id: int,
+        body: dict[str, Any],
+        ctx: CurrentUserCtx,
+    ) -> dict[str, Any]:
+        return await self.work_order_service.update_assignment(work_order_id, body, ctx)
 
     async def list_events(self, work_order_id: int, ctx: CurrentUserCtx) -> dict[str, Any]:
         return await self.work_order_service.list_events(work_order_id, ctx)
@@ -343,14 +369,30 @@ class MaintenanceService:
     async def kb_from_work_order(self, body: dict[str, Any], ctx: CurrentUserCtx) -> dict[str, Any]:
         return await self.knowledge_article_service.kb_from_work_order(body, ctx)
 
-    async def list_kb_articles(self, ctx: CurrentUserCtx, status: str | None, page: int, page_size: int) -> dict[str, Any]:
-        return await self.knowledge_article_service.list_kb_articles(ctx, status, page, page_size)
+    async def list_kb_articles(
+        self,
+        ctx: CurrentUserCtx,
+        status: str | None,
+        page: int,
+        page_size: int,
+        series_id: int | None = None,
+    ) -> dict[str, Any]:
+        return await self.knowledge_article_service.list_kb_articles(ctx, status, page, page_size, series_id)
+
+    async def get_kb_publish_console(self, ctx: CurrentUserCtx) -> dict[str, Any]:
+        return await self.knowledge_article_service.get_publish_console(ctx)
+
+    async def get_kb_article_versions(self, article_id: int, ctx: CurrentUserCtx) -> dict[str, Any]:
+        return await self.knowledge_article_service.get_article_versions(article_id, ctx)
 
     async def review_kb(self, article_id: int, body: dict[str, Any], ctx: CurrentUserCtx) -> dict[str, Any]:
         return await self.knowledge_article_service.review_kb(article_id, body, ctx)
 
     async def publish_kb(self, article_id: int, body: dict[str, Any] | None, ctx: CurrentUserCtx) -> dict[str, Any]:
         return await self.knowledge_article_service.publish_kb(article_id, body, ctx)
+
+    async def withdraw_kb(self, article_id: int, ctx: CurrentUserCtx) -> dict[str, Any]:
+        return await self.knowledge_article_service.withdraw_kb(article_id, ctx)
 
     async def list_audit_logs(
         self,

@@ -1,4 +1,4 @@
-"""Knowledge base APIs for the maintenance knowledge system."""
+"""Knowledge base APIs for 软件杯检修知识系统."""
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
@@ -443,22 +443,15 @@ async def delete_knowledge_document(
     document_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> JSONResponse:
-    from sqlalchemy import select as sa_select
-
-    from app.db.models.knowledge import KnowledgeDocument
-
-    doc = (
-        await session.execute(
-            sa_select(KnowledgeDocument).where(KnowledgeDocument.id == document_id)
-        )
-    ).scalar_one_or_none()
-    if doc is None:
+    service = KnowledgeImportService(session)
+    try:
+        await service.delete_document(document_id)
+    except ValueError as exc:
         raise AppError(
             status_code=status.HTTP_404_NOT_FOUND,
             error_code="knowledge_document_not_found",
-            message="指定的知识文档不存在。",
-        )
-    await session.delete(doc)
+            message=str(exc),
+        ) from exc
     return JSONResponse({"success": True, "message": "文档已删除"})
 
 
