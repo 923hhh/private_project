@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 生成软件杯「源码包」ZIP：基于当前 HEAD 的 git 树。
+# 生成公开交付用「源码包」ZIP：基于当前 HEAD 的 git 树。
 # 用法：bash backend/scripts/package_softbei_submission.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

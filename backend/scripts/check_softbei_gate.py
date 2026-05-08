@@ -1,4 +1,4 @@
-"""检查软件杯评测结果是否满足功能3/4门禁阈值。"""
+"""检查固定评测结果是否满足功能3/4门禁阈值。"""
 from __future__ import annotations
 
 import argparse
@@ -120,22 +120,22 @@ def run_gate(gate_path: Path, result_path: Path | None) -> int:
         passed=passed,
     )
 
-    print(f"[softbei-gate] 评测文件: {eval_path}")
-    print(f"[softbei-gate] 门禁配置: {gate_path.resolve()}")
+    print(f"[eval-gate] 评测文件: {eval_path}")
+    print(f"[eval-gate] 门禁配置: {gate_path.resolve()}")
     for line in passed:
         print(f"[PASS] {line}")
     if failed:
         for line in failed:
             print(f"[FAIL] {line}")
-        print(f"[softbei-gate] 门禁失败，共 {len(failed)} 项不达标。")
+        print(f"[eval-gate] 门禁失败，共 {len(failed)} 项不达标。")
         return 1
 
-    print("[softbei-gate] 门禁通过，功能3/4自动化评测达标。")
+    print("[eval-gate] 门禁通过，功能3/4自动化评测达标。")
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="检查软件杯评测结果门禁")
+    parser = argparse.ArgumentParser(description="检查固定评测结果门禁")
     parser.add_argument(
         "--gate-config",
         default=str(DEFAULT_GATE_CONFIG),

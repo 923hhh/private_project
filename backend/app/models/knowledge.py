@@ -1,4 +1,4 @@
-"""Knowledge base models for the 软件杯检修知识系统."""
+"""Knowledge base models for the maintenance knowledge system."""
 from datetime import datetime
 
 from sqlalchemy import (

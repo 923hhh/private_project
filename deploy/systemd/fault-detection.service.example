@@ -5,9 +5,9 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/opt/dachuang_project/backend
-EnvironmentFile=/opt/dachuang_project/.env
-ExecStart=/opt/dachuang_project/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+WorkingDirectory=/opt/<app-name>/backend
+EnvironmentFile=/opt/<app-name>/.env
+ExecStart=/opt/<app-name>/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 Restart=always
 RestartSec=5
 

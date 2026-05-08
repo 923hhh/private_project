@@ -70,7 +70,7 @@ frontend/tsconfig.tsbuildinfo
 .coverage
 htmlcov/
 
-# 软件杯评测脚本本地产出（可重新生成）
+# 离线评测脚本本地产出（可重新生成）
 evaluation/softbei_eval_results.json
 backend/evaluation/softbei_eval_results.json
 backend/evaluation/results/
@@ -81,7 +81,7 @@ backend/evaluation/*_cases.json
 backend/evaluation/*_seed.json
 *.db-journal
 
-# 软件杯源码打包脚本产出（见 scripts/package_softbei_submission.*）
+# 源码打包脚本产出（见 scripts/package_softbei_submission.*）
 dist/
 
 # ========================
@@ -91,6 +91,7 @@ deploy/backups/
 submission/
 docs/release/
 docs/daily_report/
+!docs/全流程跑通指南.md
 docs/MVP 产品需求文档.md
 docs/演示脚本_摩托车发动机手册.md
 CLAUDE.md

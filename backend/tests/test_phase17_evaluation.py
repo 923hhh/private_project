@@ -1,4 +1,4 @@
-"""Phase 17: 软件杯效果证据与测试报告资产验证."""
+"""Phase 17: evaluation evidence and report asset verification."""
 import json
 import subprocess
 import sys

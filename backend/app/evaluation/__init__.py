@@ -1,4 +1,4 @@
-"""Evaluation helpers for 软件杯 stage validation."""
+"""Evaluation helpers for public-stage validation."""
 
 from app.evaluation.softbei_metrics import (
     build_quality_highlights,

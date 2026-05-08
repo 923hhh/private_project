@@ -1,4 +1,4 @@
-# 生成软件杯「源码包」ZIP：基于当前 HEAD 的 git 树（不含 .git、venv、node_modules 等未跟踪内容）。
+# 生成公开交付用「源码包」ZIP：基于当前 HEAD 的 git 树（不含 .git、venv、node_modules 等未跟踪内容）。
 # 用法：在仓库根目录执行 .\backend\scripts\package_softbei_submission.ps1
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")

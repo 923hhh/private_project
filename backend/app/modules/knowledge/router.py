@@ -1,4 +1,4 @@
-"""Knowledge base APIs for 软件杯检修知识系统."""
+"""Knowledge base APIs for the maintenance knowledge system."""
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status

@@ -1,4 +1,4 @@
-"""Run TODO-SB-7 evaluation against the current 软件杯 API stack.
+"""Run TODO-SB-7 evaluation against the current maintenance API stack.
 
 Usage:
     venv\\Scripts\\python.exe scripts/run_softbei_eval.py
@@ -477,7 +477,7 @@ async def run_evaluation(
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="运行软件杯评测（支持自定义样本）")
+    parser = argparse.ArgumentParser(description="运行固定离线评测（支持自定义样本）")
     parser.add_argument(
         "--cases-path",
         default=str(DEFAULT_CASES_PATH),
