@@ -82,6 +82,8 @@ cp .env.example .env.local
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:18000
 ```
 
+如果要启用知识检索，请额外准备可用的 embedding 服务；如本地无法加载 reranker，可在 `.env` 中设置 `ENABLE_RERANKER=false`。详细说明见 [docs/全流程跑通指南.md](docs/%E5%85%A8%E6%B5%81%E7%A8%8B%E8%B7%91%E9%80%9A%E6%8C%87%E5%8D%97.md)。
+
 ### 3. 初始化数据库
 
 ```bash
