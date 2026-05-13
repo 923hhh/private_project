@@ -1,0 +1,7 @@
+case_id,category,modality,query,image_path,equipment_type,equipment_model,fault_type,expected_section_reference,expected_page_reference,expected_terms,expected_behavior,notes
+MM-01,success,image+text,请结合图片判断是否存在火花塞积炭，并给出与启动困难相关的检修依据,,摩托车发动机,通用,点火系统,1.2 检查火花塞,P3,火花塞|积炭|间隙标准值|更换火花塞,Top-3 内应命中火花塞检查或启动困难相关知识,请替换 image_path 为你自己的合规图片
+MM-02,success,image+text,请结合图片识别火花塞的关键测量位置，并检索火花塞间隙标准值,,摩托车发动机,通用,点火系统,1.2 检查火花塞,P3,火花塞|塞尺|间隙标准值|0.7|0.9,Top-3 内应命中火花塞间隙检查与标准值,请替换 image_path 为你自己的合规图片
+MM-03,success,image+text,请结合图片识别起动电机相关部件，并给出拆卸时需要先处理的连接或固定件,,摩托车发动机,通用,起动系统,2.2 拆卸起动电机,P4,起动电机|正极线|螺母|M6×30|固定螺栓,Top-3 内应命中起动电机拆卸步骤,请替换 image_path 为你自己的合规图片
+MM-04,success,image+text,请结合图片说明正时链条涨紧器如何预压、自锁和释放,,摩托车发动机,通用,正时系统,4.4 安装涨紧器,P13,涨紧器|顶销螺栓|一字螺丝刀|顺时针|逆时针,Top-3 内应命中涨紧器安装与校核流程,请替换 image_path 为你自己的合规图片
+MM-05,success,image+text,请结合图片识别气门机构关键部位，并检索气门间隙标准范围和垫片调整知识,,摩托车发动机,通用,气门机构,4.6 气门间隙标准值,P15,气门间隙|进气门|排气门|调整垫片|基圆位置,Top-3 内应命中气门间隙标准与调整方法,请替换 image_path 为你自己的合规图片
+MM-06,success,image+text,请结合图片识别装配标记，并检索曲轴和平衡轴的对正要求,,摩托车发动机,通用,曲轴总成,9.4 安装曲轴与平衡轴,P40,标记A|标记B|曲轴|平衡轴|对正角相,Top-3 内应命中曲轴和平衡轴标记对正要求,请替换 image_path 为你自己的合规图片

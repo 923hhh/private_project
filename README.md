@@ -6,7 +6,13 @@
 - `backend/`：FastAPI 后端、数据库迁移、测试与脚本
 - `frontend/`：Next.js 前端工作台
 
-公开源码仓库默认不包含本地数据库、样例数据集和演示素材；如需完整演示，请在你自己的环境中准备对应文件。
+公开源码仓库默认不包含本地数据库、私有手册、评测产物和敏感演示素材；如需完整演示，请在你自己的环境中准备合规文件。
+
+仓库中提供了可公开使用的评测模板与多模态说明：
+
+- `datasets/validation/motorcycle_engine_retrieval_eval.csv`
+- `datasets/validation/motorcycle_engine_multimodal_eval.csv`
+- `datasets/img/README.md`
 
 更完整的联调与部署说明见 [docs/全流程跑通指南.md](docs/%E5%85%A8%E6%B5%81%E7%A8%8B%E8%B7%91%E9%80%9A%E6%8C%87%E5%8D%97.md)、[docs/README.md](docs/README.md) 与 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
 
@@ -62,10 +68,10 @@ cp .env.example .env
 
 ```env
 DATABASE_URL=sqlite+aiosqlite:///./sensor_data.db
-DEEPSEEK_API_KEY=sk-xxxxx
+DEEPSEEK_API_KEY=your-deepseek-api-key
 DEEPSEEK_API_BASE=https://api.deepseek.com
-OPENAI_API_KEY=sk-xxxxx
-ANTHROPIC_API_KEY=sk-ant-xxxxx
+OPENAI_API_KEY=your-openai-api-key
+ANTHROPIC_API_KEY=your-anthropic-api-key
 DEBUG=false
 ```
 

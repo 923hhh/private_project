@@ -38,6 +38,12 @@ backend/data/
 dataset/
 datasets/**
 !datasets/README.md
+!datasets/img/
+!datasets/img/README.md
+!datasets/validation/
+!datasets/validation/README.md
+!datasets/validation/motorcycle_engine_retrieval_eval.csv
+!datasets/validation/motorcycle_engine_multimodal_eval.csv
 logs/
 *.log
 
@@ -48,6 +54,8 @@ logs/
 .idea/
 .tools/
 .claude/
+.agents/
+.cursor/
 .DS_Store
 Thumbs.db
 
@@ -69,6 +77,7 @@ frontend/tsconfig.tsbuildinfo
 **/__pycache__/
 .coverage
 htmlcov/
+frontend/test-results/
 
 # 离线评测脚本本地产出（可重新生成）
 evaluation/softbei_eval_results.json

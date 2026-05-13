@@ -9,7 +9,7 @@ param(
     [ValidateSet("cloudflared", "localtunnel")]
     [string]$TunnelProvider = "cloudflared",
     [string]$TunnelSubdomain = "",
-    # cloudflared 转发目标主机：默认 localhost。若遇到 127.0.0.1/localhost 被系统代理拦截，可传入 Next 输出的 Network IP（例如 172.29.249.98）
+    # cloudflared 转发目标主机：默认 localhost。若遇到 127.0.0.1/localhost 被系统代理拦截，可传入当前开发机上的可访问局域网 IP。
     [string]$TunnelOriginHost = "localhost",
     # 前端启动模式：dev=开发热更新（不建议穿透给外网），share=生产模式（适合穿透给外网展示）
     [ValidateSet("dev", "share")]
